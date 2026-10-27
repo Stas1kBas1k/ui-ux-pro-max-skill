@@ -498,6 +498,23 @@ class Watcher:
 
 
 @dataclass
+class AiConfig:
+    """The optional AI assistant (Claude). Off until an API key is given; nothing is sent before that."""
+    api_key: str = ""                 # stored only in this PC's settings file; ANTHROPIC_API_KEY also works
+    model: str = "claude-opus-5-5"
+    effort: str = "medium"            # low | medium | high
+    allow_screenshots: bool = False   # lets the assistant look at the game when asked
+    auto_read_min: int = 0            # 0 = off; otherwise read the game screen every N minutes (costs credits)
+
+
+@dataclass
+class MiniModeConfig:
+    shrink_on_start: bool = True      # turn the window into the small fishing card when fishing starts
+    always_on_top: bool = True
+    opacity: float = 0.94
+
+
+@dataclass
 class AppSettings:
     active_profile: str = "Default"
     risk_acknowledged: bool = False
@@ -515,6 +532,8 @@ class AppSettings:
     addons: AddonsConfig = field(default_factory=AddonsConfig)
     hunts: HuntsConfig = field(default_factory=HuntsConfig)
     rod_detect: RodDetectConfig = field(default_factory=RodDetectConfig)
+    ai: AiConfig = field(default_factory=AiConfig)
+    mini: MiniModeConfig = field(default_factory=MiniModeConfig)
     window_geometry: str = ""
     setup_dismissed: bool = False
     setup_progress: dict[str, bool] = field(default_factory=dict)  # milestones seen in the live game

@@ -367,7 +367,12 @@ class FishingStateMachine:
             hold = self.reel.update(obs.reel.fish_x, obs.reel.bar_left, obs.reel.bar_right, now,
                                     obs.reel.confidence, self.min_switch_interval)
             if hold:
-                self.input.mouse_down()
+                # Lullaby: a press off-beat costs -5% progress, so wait for a lit section while the fish is
+                # still inside the bar; once it is slipping out, losing the fish costs more than a miss.
+                r = obs.reel
+                slipping = r.fish_x > r.bar_right - 0.15 * max(0.01, r.bar_width)
+                if self.input.is_held() or mini.kind == "none" or slipping or self.minigame.press_allowed(obs, now):
+                    self.input.mouse_down()
             else:
                 self.input.mouse_up()
         elif steer and obs.reel.ui_present and obs.reel.fish_found and \
@@ -378,7 +383,8 @@ class FishingStateMachine:
             ref = c.bar_center if (c.bar_center is not None and now - c.bar_seen < 0.6) else 0.5
             hold = obs.reel.fish_x > ref
             if hold:
-                self.input.mouse_down()
+                if self.input.is_held() or mini.kind == "none" or self.minigame.press_allowed(obs, now):
+                    self.input.mouse_down()
             else:
                 self.input.mouse_up()
             if not c.fallback_warned:

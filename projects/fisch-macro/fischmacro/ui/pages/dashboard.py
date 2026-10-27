@@ -39,6 +39,7 @@ class DashboardPage(QWidget):
     calibrate_requested = Signal()
     vision_requested = Signal()
     autocal_requested = Signal()
+    fishing_requested = Signal()
 
     def __init__(self, ctx):
         super().__init__()
@@ -106,7 +107,8 @@ class DashboardPage(QWidget):
             "risk": self.risk_requested.emit, "preview": self.preview_requested.emit,
             "calibrate": self.calibrate_requested.emit, "vision": self.vision_requested.emit,
             "autocal": self.autocal_requested.emit,
-            "start": self.start_requested.emit,
+            "start": self.start_requested.emit, "live": self._use_live_game, "display": self._open_display,
+            "fishing": self.fishing_requested.emit,
         })
         root.addWidget(self.checklist)
 
@@ -144,6 +146,18 @@ class DashboardPage(QWidget):
         bottom.addLayout(right, 2)
         root.addLayout(bottom, 1)
         self.add_events(list(ctx.activity))  # history survives theme changes
+
+    def _use_live_game(self) -> None:
+        self.ctx.saved_capture_mode = None
+        self.ctx.settings.capture.mode = "window"
+        self.ctx.settings_edited("capture")
+        self.ctx.restart_vision_if_idle()
+
+    @staticmethod
+    def _open_display() -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl("ms-settings:display"))
 
     def add_events(self, events) -> None:
         for ts, kind, msg in events:

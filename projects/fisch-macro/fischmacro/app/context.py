@@ -24,6 +24,7 @@ class AppContext(QObject):
     notice = Signal(str, str)                   # (title, message) for toasts from background decisions
     settings_changed = Signal()
     appearance_changed = Signal()   # theme / text size changed: the window is rebuilt
+    ai_reading = Signal(object)     # dict from the assistant's screen reading (GUI thread)
 
     def __init__(self, settings_store: SettingsStore | None = None, profiles: ProfileManager | None = None,
                  stats: StatsStore | None = None):
@@ -54,6 +55,14 @@ class AppContext(QObject):
         self._profile_timer.setSingleShot(True)
         self._profile_timer.setInterval(400)
         self._profile_timer.timeout.connect(self.save_profile)
+        from fischmacro.ai.assistant import Assistant
+        self.assistant = Assistant(lambda: self.settings.ai)
+        self.ai_reading.connect(self.apply_ai_reading)
+        self._ai_timer = QTimer(self)
+        self._ai_timer.timeout.connect(self._ai_auto_read)
+        self._ai_timer.start(60_000)
+        self._ai_minutes = 0
+        self.last_ai_reading: dict = {}
 
     def _load_active(self) -> Profile:
         name = self.settings.active_profile
@@ -209,6 +218,9 @@ class AppContext(QObject):
         p.name = self._unique_name(rod)
         p.equipment.rod_name = rod
         p.equipment.skin = ""
+        # a new rod starts from clean colours: never carry over the previous rod's or skin's colours
+        from fischmacro.profiles.schema import DetectionConfig
+        p.detection = DetectionConfig()
         preset = find_preset(rod)
         if preset:
             apply_preset(p, preset)
@@ -216,6 +228,65 @@ class AppContext(QObject):
         self._use_profile(p)
         self.notice.emit("New rod profile", f"Created '{p.name}'" + (f" with the {preset.name} preset" if preset else "")
                          + " - colours adapt automatically on the first catch.")
+
+    # ------------------------------------------------------------------ AI assistant
+    def read_game_with_ai(self, on_error=None) -> bool:
+        """Grab the game screen and let the assistant read it in the background."""
+        import threading
+        from fischmacro.ai.assistant import AssistantError
+        img = self.engine._grab_full_image()
+        if img is None:
+            if on_error:
+                on_error("Could not capture the game window - is Roblox open?")
+            return False
+
+        def work():
+            try:
+                self.ai_reading.emit(self.assistant.read_screen(img))
+            except AssistantError as exc:
+                if on_error:
+                    on_error(str(exc))
+                else:
+                    self.notice.emit("AI assistant", str(exc))
+        threading.Thread(target=work, name="ai-read", daemon=True).start()
+        return True
+
+    def apply_ai_reading(self, r: dict) -> None:
+        """Feed what the assistant saw into the add-ons and rod profiles."""
+        import time
+        self.last_ai_reading = r
+        w = self.engine.addons.world
+        now = time.monotonic()
+        from fischmacro.game_data import SURGES, WEATHERS
+        weather = next((n for n, _, _, words in WEATHERS
+                        if r.get("weather") and (n.lower() in r["weather"].lower() or
+                                                 any(k in r["weather"].lower() for k in words))), "")
+        if weather:
+            w.weather = weather
+        if r.get("time_of_day") in ("Day", "Night"):
+            w.time = r["time_of_day"]
+        w.surge = next((n for n, _, _, _ in SURGES if r.get("surge") and n.lower() in r["surge"].lower()), "")
+        w.updated = now
+        if r.get("rod") and self.settings.rod_detect.enabled:
+            self.handle_rod(r["rod"])
+        watched = [h.lower() for h in self.settings.hunts.watched]
+        seen = [h for h in r.get("hunts", []) + r.get("events", [])
+                if any(x in h.lower() for x in watched)]
+        if seen:
+            self.notice.emit("Hunt spotted", ", ".join(seen))
+            if self.settings.hunts.discord:
+                self.engine.notifier.send("Hunt spotted", ", ".join(seen), key="ai:" + "|".join(seen), min_gap=600)
+
+    def _ai_auto_read(self) -> None:
+        a = self.settings.ai
+        if not (a.auto_read_min and a.allow_screenshots and self.assistant.configured):
+            return
+        if self.engine.status not in (Status.RUNNING, Status.MONITORING, Status.PAUSED):
+            return
+        self._ai_minutes += 1
+        if self._ai_minutes >= a.auto_read_min:
+            self._ai_minutes = 0
+            self.read_game_with_ai()
 
     def _on_auto_changed(self, reason: str, info) -> None:
         """Auto-calibration changed the profile. A new skin on a calibrated rod becomes its own profile."""

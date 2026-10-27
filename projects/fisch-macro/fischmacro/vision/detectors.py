@@ -68,7 +68,7 @@ class ReelResult:
         return self.bar_right - self.bar_left
 
 
-def shape_fish(crop: np.ndarray) -> tuple[float, float, int] | None:
+def shape_fish(crop: np.ndarray, bounds: tuple[int, int] | None = None) -> tuple[float, float, int] | None:
     """Find the fish marker by shape, whatever its colour: a thin line that runs most of the bar's height
     and differs from the track on both sides. Returns (x 0..1, confidence, width px) or None."""
     h, w = crop.shape[:2]
@@ -84,8 +84,9 @@ def shape_fish(crop: np.ndarray) -> tuple[float, float, int] | None:
     score = np.zeros(w, np.float32)
     score[k:w - k] = stands_out.mean(axis=0)
     margin = int(0.04 * w)  # frame decoration lives at the ends
-    score[:margin] = 0
-    score[w - margin:] = 0
+    lo, hi = bounds if bounds else (margin, w - margin)
+    score[:max(0, lo)] = 0
+    score[min(w, hi):] = 0
     runs = [r for r in _runs(score >= 0.55, max_gap=max(1, int(0.008 * w))) if r[1] - r[0] <= max(3, int(0.03 * w))]
     if not runs:
         return None
@@ -192,6 +193,44 @@ def detect_progress(crop: np.ndarray | None, cfg: DetectionConfig) -> FillResult
         consistency = filled / max(1, runs[0][1] - runs[0][0])
         return FillResult(True, _clamp(fill), _clamp(consistency))
     return FillResult(False, filled / w, 0.3 if filled else 0.0)
+
+
+def _progress_by_brightness(prof: np.ndarray, w: int) -> FillResult:
+    """Both ends look alike (a frame around the bar): the filled part is the brighter one on the left."""
+    v = prof.max(axis=2).mean(axis=0).astype(np.float32)
+    m = max(3, int(0.06 * w))
+    inner = v[m:w - m]
+    n = inner.size
+    if n < 10:
+        return FillResult()
+    c = np.concatenate(([0.0], np.cumsum(inner)))
+    k = np.arange(1, n)
+    gap = c[k] / k - (c[n] - c[k]) / (n - k)
+    i = int(gap.argmax())
+    if gap[i] < 20:
+        return FillResult()
+    return FillResult(True, _clamp((i + 1) / n), _clamp(gap[i] / 60.0))
+
+
+def detect_progress_auto(crop: np.ndarray | None) -> FillResult:
+    """Colour-free progress: the bar fills from the left, so find the split between the left look and
+    the right look that explains the columns best. Unreadable (present=False) when both ends look alike."""
+    if crop is None or crop.size == 0 or crop.shape[1] < 20:
+        return FillResult()
+    h, w = crop.shape[:2]
+    y0, y1 = int(h * 0.25), max(int(h * 0.25) + 1, int(h * 0.75))
+    prof = cv2.resize(crop[y0:y1], (w, 3), interpolation=cv2.INTER_AREA).astype(np.int16)
+    e = max(2, int(0.04 * w))
+    left, right = np.median(prof[:, :e], axis=1), np.median(prof[:, -e:], axis=1)
+    if float(np.abs(left - right).max(axis=1).mean()) < 30:
+        return _progress_by_brightness(prof, w)
+    dl = np.abs(prof - left[:, None, :]).max(axis=2).mean(axis=0)
+    dr = np.abs(prof - right[:, None, :]).max(axis=2).mean(axis=0)
+    # cost of splitting at k: columns before k should look like the left end, after k like the right end
+    cost = np.concatenate(([0.0], np.cumsum(dl))) + np.concatenate((np.cumsum(dr[::-1])[::-1], [0.0]))
+    k = int(cost.argmin())
+    worst = float(cost[k]) / w
+    return FillResult(True, _clamp(k / w), _clamp(1.0 - worst / 40.0))
 
 
 def detect_cast(crop: np.ndarray | None, cfg: DetectionConfig) -> FillResult:

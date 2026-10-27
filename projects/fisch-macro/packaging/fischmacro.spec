@@ -12,7 +12,7 @@ a = Analysis(
     pathex=[str(ROOT)],
     datas=[(str(ROOT / "assets"), "assets")] + ocr_data,
     hiddenimports=["pynput.keyboard._win32", "pynput.mouse._win32", "pynput.keyboard._xorg", "pynput.mouse._xorg",
-                   "onnxruntime"] + collect_submodules("rapidocr_onnxruntime"),  # imported dynamically
+                   "onnxruntime", "anthropic"] + collect_submodules("rapidocr_onnxruntime"),  # imported dynamically
     excludes=["tkinter", "matplotlib", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
               "PySide6.Qt3DCore", "PySide6.QtQuick3D", "PySide6.QtMultimedia", "PySide6.QtPdf"],
     noarchive=False,

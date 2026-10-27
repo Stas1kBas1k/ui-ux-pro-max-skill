@@ -51,7 +51,7 @@ def test_targets_detector():
 @pytest.mark.parametrize("kind,action", [("lullaby", "e"), ("stellarwave", "click"), ("targets", "click")])
 def test_rod_minigame_solved_while_still_catching(kind, action):
     p = Profile()
-    p.minigame.kind, p.minigame.action, p.minigame.lead_ms = kind, action, 0  # the simulator has no input lag
+    p.minigame.kind, p.minigame.action = kind, action
     p.minigame.mode_presses = 1
     g = SimulatedFischGame(seed=3, difficulty=0.4)
     g.rod_minigame, g.mini_action = kind, action
@@ -64,11 +64,25 @@ def test_rod_minigame_solved_while_still_catching(kind, action):
 
 def test_lullaby_only_mode_leaves_the_bar_alone():
     p = Profile()
-    p.minigame.kind, p.minigame.action, p.minigame.lead_ms, p.minigame.keep_reeling = "lullaby", "click", 0, False
+    p.minigame.kind, p.minigame.action, p.minigame.keep_reeling = "lullaby", "click", False
     g = SimulatedFischGame(seed=3, difficulty=0.4)
     g.rod_minigame = "lullaby"
-    run_simulation(p, game=g, cycles=2, max_time=200, fps=60)
-    assert g.stats.mini_hits >= 5 and g.stats.mini_misses == 0
+    g.progress_gain = g.progress_drain = 0.0  # keep the reel going: this measures click accuracy
+    run_simulation(p, game=g, cycles=1, max_time=30, fps=60)
+    # every click is aimed: the 40 ms input delay of the simulator is learned from the first hits
+    assert g.stats.mini_hits >= 10 and g.stats.mini_misses <= g.stats.mini_hits // 5
+
+
+@pytest.mark.parametrize("latency", [0.02, 0.07, 0.1])
+def test_lullaby_learns_the_input_delay(latency):
+    p = Profile()
+    p.minigame.kind, p.minigame.keep_reeling = "lullaby", False
+    g = SimulatedFischGame(seed=5, difficulty=0.4)
+    g.rod_minigame, g.input_latency = "lullaby", latency
+    g.progress_gain = g.progress_drain = 0.0
+    res = run_simulation(p, game=g, cycles=1, max_time=40, fps=60)
+    assert g.stats.mini_hits > 2 * g.stats.mini_misses, (g.stats.mini_hits, g.stats.mini_misses)
+    assert abs(res.fsm.minigame.latency - latency) < 0.04
 
 
 @pytest.mark.parametrize("name,expected", [("Stellarwave Melody Rod", "Stellarwave Melody"), ("LULLABY", "Lullaby"),
@@ -80,3 +94,25 @@ def test_rod_presets(name, expected):
     if preset:
         p = Profile()
         assert apply_preset(p, preset)
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_lullaby_read_on_any_skin_without_colours(seed):
+    from fischmacro.simulation.game import random_skin
+    g = SimulatedFischGame(seed=seed)
+    g.skin = random_skin(seed)
+    g.rod_minigame = "lullaby"
+    g._start_reel()
+    g.step(0.3)
+    f = Frame(g.render(), (g.width, g.height))
+    res = mg.detect_timing_auto(f.crop(Profile().region("mini")))
+    assert res.present and abs(res.pointer - g._pointer()) < 0.02
+    truth = []
+    for a, b in sorted(g._segments):  # overlapping sections are one section on screen
+        if truth and a <= truth[-1][1] + 0.02:
+            truth[-1] = (truth[-1][0], max(truth[-1][1], b))
+        else:
+            truth.append((a, b))
+    assert len(res.segments) == len(truth)
+    for (a, b), (ta, tb) in zip(sorted(res.segments), truth):
+        assert abs(a - ta) < 0.03 and abs(b - tb) < 0.03

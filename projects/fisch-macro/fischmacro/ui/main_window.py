@@ -19,7 +19,9 @@ from fischmacro.ui.calibration import CalibrationWindow
 from fischmacro.ui.fancy import ToastManager, asset_pixmap
 from fischmacro.ui.icons import icon
 from fischmacro.ui.overlay import DebugOverlay
+from fischmacro.ui.mini import MiniWindow
 from fischmacro.ui.pages.addons import AddonsPage
+from fischmacro.ui.pages.assistant import AssistantPage
 from fischmacro.ui.pages.automation import AutomationPage
 from fischmacro.ui.pages.fishing import FishingPage
 from fischmacro.ui.pages.hunts import HuntsPage
@@ -80,8 +82,9 @@ class RiskDialog(QDialog):
 
 class MainWindow(QMainWindow):
     NAV = [("dashboard", "Dashboard"), ("fishing", "Fishing"), ("addons", "Add-ons"), ("hunts", "Hunts"),
-           ("calibration", "Calibration"), ("profiles", "Profiles"), ("settings", "Settings"), ("logs", "Logs & Stats")]
-    CALIBRATION = 4
+           ("assistant", "Assistant"), ("calibration", "Calibration"), ("profiles", "Profiles"),
+           ("settings", "Settings"), ("logs", "Logs & Stats")]
+    CALIBRATION = 5
 
     def __init__(self, ctx):
         super().__init__()
@@ -90,6 +93,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1100, 720)
         self.resize(1320, 860)
         self.overlay = DebugOverlay()
+        self.mini: MiniWindow | None = None
         self.calibration: CalibrationWindow | None = None
         self._local_shortcuts: list[QShortcut] = []
         self._tick = 0
@@ -112,6 +116,7 @@ class MainWindow(QMainWindow):
         self.fishing = FishingPage(ctx, self.pick_region, lambda: AutomationPage(ctx))
         self.addons = AddonsPage(ctx, self.pick_region, self.pick_point)
         self.hunts = HuntsPage(ctx, self.pick_region)
+        self.assistant = AssistantPage(ctx)
         self.vision = VisionPage(ctx)
         self.profiles = ProfilesPage(ctx)
         self.hotkeys = HotkeysPage(ctx)
@@ -121,8 +126,8 @@ class MainWindow(QMainWindow):
         self.settings_hub.addTab(self.settings, "General")
         self.settings_hub.addTab(self.hotkeys, "Hotkeys")
         self.logs = LogsPage(ctx)
-        for page in (self.dashboard, self.fishing, self.addons, self.hunts, self.vision, self.profiles,
-                     self.settings_hub, self.logs):
+        for page in (self.dashboard, self.fishing, self.addons, self.hunts, self.assistant, self.vision,
+                     self.profiles, self.settings_hub, self.logs):
             self.stack.addWidget(page)
 
         self.dashboard.start_requested.connect(self.start_automation)
@@ -133,6 +138,7 @@ class MainWindow(QMainWindow):
         self.dashboard.calibrate_requested.connect(self.toggle_calibration)
         self.dashboard.vision_requested.connect(lambda: self.select_page(self.CALIBRATION))
         self.dashboard.autocal_requested.connect(self._start_autocal)
+        self.dashboard.fishing_requested.connect(lambda: self.select_page(1))
         self.vision.calibrate_requested.connect(self.toggle_calibration)
         self.vision.snapshot_requested.connect(self.diagnostic_snapshot)
         self.vision.overlay_toggled.connect(self.set_overlay)
@@ -365,7 +371,8 @@ class MainWindow(QMainWindow):
             self.ctx.engine.resume()
             return
         self.ctx.save_profile()
-        self.ctx.engine.start_automation()
+        if self.ctx.engine.start_automation() and self.ctx.settings.mini.shrink_on_start:
+            self.show_mini()
 
     def _review_risk(self) -> None:
         self.ctx.settings.risk_acknowledged = False
@@ -383,6 +390,26 @@ class MainWindow(QMainWindow):
     def emergency_stop(self) -> None:
         self.ctx.engine.emergency_stop()
 
+    # ------------------------------------------------------------------ mini mode
+    def show_mini(self) -> None:
+        m = self.ctx.settings.mini
+        if self.mini is None:
+            self.mini = MiniWindow(m.always_on_top, m.opacity)
+            self.mini.expand_requested.connect(self.show_full)
+            self.mini.pause_requested.connect(self.ctx.engine.toggle_pause)
+            self.mini.stop_requested.connect(self.emergency_stop)
+            g = self.geometry()
+            self.mini.move(g.right() - self.mini.width() - 24, g.top() + 60)
+        self.mini.show()
+        self.mini.raise_()
+        self.hide()
+
+    def show_full(self) -> None:
+        if self.mini is not None:
+            self.mini.hide()
+        self.showNormal()
+        self.raise_()
+
     def set_overlay(self, on: bool) -> None:
         self.ctx.settings.overlay_enabled = on
         if on:
@@ -393,6 +420,8 @@ class MainWindow(QMainWindow):
             self.overlay.hide()
 
     def toggle_calibration(self) -> None:
+        if self.mini is not None:
+            self.mini.close()
         if self.calibration is not None:
             self.calibration.close()
             return
@@ -494,6 +523,11 @@ class MainWindow(QMainWindow):
             if any(k in ("cycle", "error") for _, k, _ in events):
                 self._stats_dirty = True
         self.dashboard.refresh(s)
+        self.fishing.refresh(s)
+        if self.mini is not None and self.mini.isVisible():
+            self.mini.refresh(s)
+            if s.status not in (Status.RUNNING, Status.PAUSED):
+                self.show_full()  # fishing stopped: bring the full window back
         self.vision.refresh(s, self.stack.currentWidget() is self.vision)
         if self.stack.currentWidget() is self.logs:
             self.logs.poll_log()

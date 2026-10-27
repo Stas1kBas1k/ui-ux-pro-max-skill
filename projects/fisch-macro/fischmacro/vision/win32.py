@@ -104,3 +104,14 @@ def focus_window(handle: int) -> bool:
     except Exception as exc:  # noqa: BLE001
         log.debug("focus_window failed: %s", exc)
         return False
+
+
+def display_scale_percent() -> int | None:
+    """Windows display scaling of the main screen (100, 125, ...); None when it cannot be read."""
+    if not IS_WINDOWS:
+        return None
+    import ctypes
+    try:
+        return round(ctypes.windll.user32.GetDpiForSystem() * 100 / 96)
+    except Exception:  # noqa: BLE001 - very old Windows
+        return None

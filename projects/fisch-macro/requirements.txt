@@ -13,6 +13,8 @@ shapely>=2.0
 PyYAML>=6.0
 Pillow>=10.0
 six>=1.16
+# Optional AI assistant (Claude): only used when you add an API key
+anthropic>=2.0
 # Tests and packaging
 pytest>=8.0
 pyinstaller>=6.5

@@ -197,7 +197,7 @@ class ReelGraph(QWidget):
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
+        w = self.width()
         track = QRectF(10, 18, w - 20, 26)
         p.setPen(QPen(QColor(C["border_hi"]), 1))
         p.setBrush(QColor(C["surface"]))

@@ -11,6 +11,7 @@ from fischmacro.profiles.schema import Profile
 from fischmacro.vision import detectors as d
 from fischmacro.vision import minigames as mg
 from fischmacro.vision.frame import Frame
+from fischmacro.vision.reel_adaptive import AdaptiveReel
 
 # Regions each automation state needs. Capturing only these keeps CPU use low.
 STATE_REGIONS: dict[str, tuple[str, ...]] = {
@@ -80,6 +81,7 @@ class VisionEngine:
         self._frozen_since: float | None = None
         self._shake_ref: np.ndarray | None = None
         self._shake_ref_t = -1e9
+        self.adaptive = AdaptiveReel()
 
     def regions_for(self, state: str) -> tuple[str, ...]:
         return STATE_REGIONS.get(state, ALL_DETECTORS)
@@ -119,10 +121,16 @@ class VisionEngine:
             return r if r.enabled and r.is_valid() else None
 
         if "reel" in wanted and (r := region("reel")):
-            obs.reel = d.detect_reel(frame.crop(r), cfg)
+            crop = frame.crop(r)
+            obs.reel = d.detect_reel(crop, cfg)
+            if getattr(cfg, "fish_any_colour", True):
+                obs.reel = self._pick_reel(obs.reel, self.adaptive.update(crop))
             checked.append("reel")
         if "progress" in wanted and (r := region("progress")):
-            obs.progress = d.detect_progress(frame.crop(r), cfg)
+            pcrop = frame.crop(r)
+            obs.progress = d.detect_progress(pcrop, cfg)
+            if not obs.progress.present and getattr(cfg, "fish_any_colour", True):
+                obs.progress = d.detect_progress_auto(pcrop)
             checked.append("progress")
         if "shake" in wanted and (r := region("shake")):
             obs.shake = d.detect_shake(frame, r, cfg, self.templates, exclude=self._shake_ref)
@@ -139,8 +147,13 @@ class VisionEngine:
         mcfg = p.minigame
         if mcfg.kind != "none" and "mini" in wanted and (r := region("mini")):
             if mcfg.kind == "lullaby":
-                obs.timing = mg.detect_timing(frame.crop(r), mcfg.pointer_color, mcfg.pointer_tolerance,
+                mcrop = frame.crop(r)
+                obs.timing = mg.detect_timing(mcrop, mcfg.pointer_color, mcfg.pointer_tolerance,
                                               mcfg.lit_color, mcfg.lit_tolerance, mcfg.axis)
+                if (not obs.timing.present or not obs.timing.segments) and getattr(cfg, "fish_any_colour", True):
+                    auto = mg.detect_timing_auto(mcrop, mcfg.axis)
+                    if auto.present:
+                        obs.timing = auto
             elif mcfg.kind == "stellarwave" and (t := region("mini_target")):
                 obs.match = mg.detect_match(frame, t, r, mcfg.symbol_color, mcfg.symbol_tolerance)
             elif mcfg.kind == "targets":
@@ -154,6 +167,20 @@ class VisionEngine:
         obs.checked = tuple(checked)
         obs.processing_ms = (time.perf_counter() - t0) * 1000
         return obs
+
+    @staticmethod
+    def _pick_reel(colour: d.ReelResult, shape: d.ReelResult) -> d.ReelResult:
+        """Trust calibrated colours when they agree with the shape tracker; otherwise the shape tracker."""
+        if colour.present and colour.bar_found and colour.confidence >= 0.5:
+            if not shape.fish_found or abs(colour.fish_x - shape.fish_x) < 0.03:
+                return colour
+        if shape.bar_found:
+            return shape
+        if colour.present and colour.confidence >= 0.5:
+            return colour
+        if shape.ui_present:
+            return shape
+        return colour
 
     def _frozen(self, frame: Frame) -> float:
         small = cv2.resize(cv2.cvtColor(frame.image, cv2.COLOR_BGR2GRAY), (64, 36), interpolation=cv2.INTER_AREA)

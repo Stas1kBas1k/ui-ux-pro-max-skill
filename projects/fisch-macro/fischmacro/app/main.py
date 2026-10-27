@@ -126,6 +126,21 @@ def self_test() -> int:
     obs = VisionEngine(Profile()).process(Frame(g.render(), (g.width, g.height)))
     print(f"Vision: {'ok' if obs.reel.present else 'FAILED'} (reel confidence {obs.reel.confidence:.2f})")
     ok &= obs.reel.present
+    # any rod skin: a random skin with no calibration must still be read
+    from fischmacro.simulation.game import random_skin
+    g = SimulatedFischGame(seed=3)
+    g.skin = random_skin(3)
+    g._start_reel()
+    g.step(0.1)
+    obs = VisionEngine(Profile()).process(Frame(g.render(), (g.width, g.height)))
+    print(f"Any skin: {'ok' if obs.reel.present else 'FAILED'} (bar found {obs.reel.bar_found})")
+    ok &= obs.reel.present
+    try:
+        import anthropic  # noqa: F401 - the AI assistant's SDK must be bundled
+        print("AI assistant SDK: ok")
+    except ImportError as exc:
+        print(f"AI assistant SDK: FAILED ({exc})")
+        ok = False
     return 0 if ok else 1
 
 

@@ -172,10 +172,37 @@ def test_fishing_page_dropdowns(app, window):
     assert window.ctx.profile.minigame.lullaby_mode == "Serene Hymn"
 
 
-def test_rod_preset_applies_from_fishing_page(app, window, monkeypatch):
-    from PySide6.QtWidgets import QMessageBox
-    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+def test_rod_picker_has_every_rod_and_automatic(app, window):
+    from fischmacro.game_data import ALL_RODS
+    from fischmacro.ui.pages.fishing import AUTO_ROD
     page = window.fishing
-    idx = page.rod_combo.findText("Stellarwave Melody")
-    page._apply_rod(idx)
+    assert page.rod_combo.findText(AUTO_ROD) == 0
+    assert page.rod_combo.count() == len(ALL_RODS) + 1
+    page._choose_rod("Stellarwave Melody")
     assert window.ctx.profile.minigame.kind == "stellarwave"
+    assert not window.ctx.settings.rod_detect.enabled
+    page._choose_rod("Carbon Rod")  # a normal rod: no rod minigame
+    assert window.ctx.profile.minigame.kind == "none"
+    page._choose_rod(AUTO_ROD)
+    assert window.ctx.settings.rod_detect.enabled
+
+
+def test_mini_window_while_fishing(app, window):
+    window.ctx.settings.mini.shrink_on_start = True
+    window.start_automation()
+    pump(app, 0.5)
+    assert window.mini is not None and window.mini.isVisible() and not window.isVisible()
+    window.poll()
+    assert window.mini.caught.text().isdigit()
+    window.emergency_stop()
+    pump(app, 0.3)
+    window.poll()
+    assert window.isVisible() and not window.mini.isVisible()
+
+
+def test_assistant_page_without_key(app, window, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    page = window.assistant
+    page.send("hello")
+    assert "API key" in page.status.text()
+    assert not page.read_btn.isEnabled()

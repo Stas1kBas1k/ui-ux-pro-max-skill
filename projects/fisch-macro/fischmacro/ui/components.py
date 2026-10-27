@@ -111,7 +111,8 @@ class RowGroup(QFrame):
         self.v.setSpacing(0)
         self._rows = 0
 
-    def add_row(self, title: str, hint: str = "", control: QWidget | None = None) -> QWidget:
+    def add_row(self, title: str, hint: str = "", control: QWidget | None = None,
+                icon_name: str | None = None) -> QWidget:
         if self._rows:
             sep = QFrame()
             sep.setObjectName("rowSep")
@@ -122,6 +123,12 @@ class RowGroup(QFrame):
         h = QHBoxLayout(row)
         h.setContentsMargins(16, 11, 12, 11)
         h.setSpacing(14)
+        if icon_name:
+            ic = QLabel()
+            ic.setPixmap(icon(icon_name, C["muted"], 17).pixmap(17, 17))
+            ic.setFixedWidth(20)
+            h.addWidget(ic, 0, Qt.AlignVCenter)
+            h.setSpacing(10)
         col = QVBoxLayout()
         col.setSpacing(1)
         t = QLabel(title)
@@ -138,13 +145,13 @@ class RowGroup(QFrame):
         self.v.addWidget(row)
         return row
 
-    def add_value(self, title: str, hint: str = "") -> QLabel:
+    def add_value(self, title: str, hint: str = "", icon_name: str | None = None) -> QLabel:
         """A read-only readout ('---' until something is known)."""
         val = QLabel("---")
         val.setObjectName("rowValue")
         val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         val.setMinimumWidth(90)
-        self.add_row(title, hint, val)
+        self.add_row(title, hint, val, icon_name)
         return val
 
 

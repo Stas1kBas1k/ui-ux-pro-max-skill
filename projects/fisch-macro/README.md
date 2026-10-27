@@ -7,9 +7,11 @@ feedback controller.
 
 ![Dashboard while fishing (simulation mode)](docs/screenshots/dashboard.png)
 
-| **Fishing** (cast, shake, tracking, rod, Lullaby mode) | **Add-ons** (Sovereign, Totem, Appraise, Potion, Astral) |
+| **Fishing** (live status, every rod or Automatic, Lullaby mode) | **Add-ons** (Sovereign, Totem, Appraise, Potion, Astral) |
 |---|---|
 | ![Fishing page](docs/screenshots/fishing.png) | ![Add-ons page](docs/screenshots/addons.png) |
+| **Assistant** (ask anything, reads your game) | **Mini window** while fishing |
+| ![Assistant](docs/screenshots/assistant.png) | ![Mini window](docs/screenshots/mini.png) |
 | **Hunts** (pick from the catalogue, or type one to add) | **Auto Appraise** (stop on the traits you pick) |
 | ![Hunt catalogue](docs/screenshots/hunts.png) | ![Auto Appraise](docs/screenshots/appraise.png) |
 | **Calibration** (auto-calibrate, live preview) | **Manual calibration tool** |
@@ -128,16 +130,23 @@ feedback controller.
 
 ### Fishing page
 
-Plain dropdowns for the choices that matter: **Cast mode** (Perfect / Normal / Timed), **Shake mode**
-(Click / Navigation), **Tracking** (Standard / Precision for tryhard and low-resilience rods), your **Rod**
-(loads its preset), and **Detect rod automatically**.
+Live **Status** (phase, progress, input, rod) and **Statistics** (caught, lost, success rate, per hour), then
+plain dropdowns: **Rod** (*Automatic* reads it from the screen, or pick from all ~200 rods - type to search),
+**Tracking method** (Standard / Precision for tryhard and low-resilience rods), **Casting mode** (Normal /
+Perfect / Timed), **Shake mode**, the **Rod minigame** and the **Lullaby mode**.
 
-**Rod minigame.** The catch bar keeps following the fish while these run (switch off *Also follow the fish*
-to play only the rod minigame).
+**Any rod skin, no calibration.** The fish is found by its shape (a thin line that stands out from the
+track), the catch bar and the progress bar by contrast with the empty track. Colours of the previous rod or
+skin are never reused: a new rod starts from clean colours and the tracker relearns the track's look on its
+own. In the simulator, 40 random skins (ornament frames, gradient tracks, see-through bars, recoloured fish
+markers, 720p and 1080p, with and without noise) went from 0 of 15 catches to **80 of 80** without any
+calibration. Auto-calibrate still exists for odd setups.
+
+**Rod minigames.**
 
 | Rod | What the app does | Status |
 |---|---|---|
-| **Lullaby** | Pick the **Lullaby mode** (Resistant Composition, Quickening Symphony, Strengthening Melody, Fortuitous Harmony, Prismatic Sinfonia, Serene Hymn, or *Keep current*). Between catches the app presses Q until that mode's name is on screen. While reeling it clicks only when the pendulum is over a lit section, once per section, and waits out the first 1.2 s of each catch (clicks there count for nothing in game). | Rules from the Fisch wiki; solver verified in the simulator. Tune *Click early by* in game. |
+| **Lullaby** | Pick the **Lullaby mode** (Resistant Composition, Quickening Symphony, Strengthening Melody, Fortuitous Harmony, Prismatic Sinfonia, Serene Hymn, or *Keep current*); between catches the app presses Q until that mode's name is on screen. Every click off a lit section costs 5% progress, so by default the bar is left alone and only the pendulum is played: one click per lit section, aimed at where the pendulum will be when the click lands. That delay (your PC + Roblox) is **measured from the hits themselves**, so it adapts to any PC. Reads any skin (pendulum by shape, lit sections by brightness). | Rules from the official Fisch wiki. Simulator: 20-100 ms input delays all learned; e.g. 154 hits / 17 misses at 40 ms. |
 | **Stellarwave Melody** | Finds the star sign you must match and clicks the matching one on the wheel. | Verified in the simulator. Calibrate the two regions in game. |
 | **Halibut Harpoon** | Clicks marked targets. | Experimental. |
 | **Pinion's Aria, Migurod, other tryhard rods** | Precision tracking with a larger safety margin. | Same tracker as above. |
@@ -213,6 +222,10 @@ and between versions.
 
 ## First-run setup
 
+The dashboard checklist walks you through these and ticks them off by itself: risk notice, real game (not the
+test mode), Roblox window found, **Windows display scale at 100%** (higher scaling can make the bar drift),
+rod picked (or Automatic), first catch. **No calibration is needed** for the reel.
+
 1. **Read and accept the risk notice** on first launch.
 2. **Try simulation mode first** (optional but recommended). In *Settings → Screen capture*, set *Capture
    source* to `simulation`, then press **Start** on the Dashboard. You will see casting, shaking and the reel
@@ -220,9 +233,8 @@ and between versions.
 3. **Prepare Roblox.** Play in **windowed or borderless** mode. Equip your rod. Leave the UI scale at its
    default for your first calibration.
 4. **Check the window title.** *Settings → Screen capture → Game window title* should be `Roblox`.
-5. **Auto-calibrate** (*Computer Vision → Auto-calibrate*, or the dashboard checklist). Then cast and reel one
-   fish manually; the app finds the bars and colours by itself and saves them. If that doesn't work for your
-   setup, calibrate manually instead.
+5. *(Optional)* **Auto-calibrate** (*Calibration → Auto-calibrate*). Only needed if the fish or bar is not
+   tracked on your setup. Cast and reel one fish manually; the app finds the bars and colours by itself.
 
    **Manual calibration** (*Computer Vision → Manual calibration* or **F10**). A frozen screenshot appears over
    the game. For each region, select it in the panel (or press 1–9) and drag a rectangle:
@@ -384,6 +396,8 @@ Verified in this repository (automated tests, run on Linux and in the Windows CI
 - Precision tracking beats standard tracking on lopsided small-bar rods. The learned bar model matches the
   simulator's true physics within about 10%.
 - Rod minigames (Lullaby, Stellarwave, targets) solved in the simulator *while still catching every fish*.
+- Any rod skin without calibration: 80/80 catches on 40 random simulated skins; the real Plaguereaver
+  screenshot is part of the tests. Lullaby reads random skins and learns 20-100 ms input delays.
 - Routines: hotbar and inventory-search item use, OCR button clicks, repeat-until-mutation, scheduling, and a
   routine running between catches during live automation.
 - Watchers: OCR hunt detection with cooldowns, rod-name changes, fuzzy matching of OCR typos, Discord payloads
@@ -393,7 +407,9 @@ Verified in this repository (automated tests, run on Linux and in the Windows CI
   bundle (Linux build verified locally; the Windows `.exe` is built and self-tested by the CI workflow).
 
 **Needs live testing in Roblox Fisch** (it can't be tested without the real game):
-- Default colours and region positions are estimates. **Calibrate them.**
+- Region positions are relative estimates (the reel area is found within them by shape); unusual layouts may
+  still need Auto-calibrate.
+- How the Lullaby UI shows a hit (the delay is learned from the lit sections changing after a hit).
 - Reel-controller gains for specific rods. The simulator models the bar physics, not Fisch's exact values.
 - The appearance of shake buttons and their colour. Template mode is the most robust option.
 - Perfect-cast detection, disconnect detection and auto reconnect (marked *experimental* in the UI).
@@ -403,12 +419,32 @@ Verified in this repository (automated tests, run on Linux and in the Windows CI
 - Add-ons: the Sovereign gamepass recharge flow, the appraise button names, the inventory key, and where
   the power and world readouts appear on screen. They are marked *verify in game*.
 
+## AI assistant (optional)
+
+The *Assistant* page uses Claude (Anthropic) with live web search, so answers follow the latest Fisch updates:
+best rods, enchants, where to catch something, what an event does - or anything else. It can also **read
+your game screen** (weather, time of day, surge, events and hunts, rod, skin, enchant) when you press *Read my
+game now* or on a timer; the result feeds Auto Totem, rod profiles and hunt alerts.
+
+- It is **off until you paste your own API key** (from console.anthropic.com) in *Assistant → Set up*.
+  Usage is billed to that key.
+- Screenshots are sent to Anthropic **only** if you tick *Let it see the game*, and only when it reads the
+  screen or you attach one to a question. Nothing is sent otherwise.
+
+## Mini window
+
+With *Fishing → Shrink to a small window* on (default), pressing Start turns the app into a small card that
+stays on top: status, fish caught and lost, catches per hour, time, plus pause / stop / open-full-window
+buttons. Drag it anywhere; double-click to expand. It returns to the full window when fishing stops.
+
 ## Privacy and safety
 
-- All processing is local. Screenshots stay in memory unless you save a diagnostic snapshot.
+- All processing is local. Screenshots stay in memory unless you save a diagnostic snapshot, or you turn on
+  the optional AI assistant's screen reading (see above).
 - No credentials, cookies, tokens or personal data are read. The app downloads or executes no code at runtime.
-- The only network traffic is optional: Discord alerts go to the webhook URL you paste, and screenshots are
-  attached only if you enable that. With no webhook set, nothing leaves your PC. OCR runs offline.
+- The only network traffic is optional: Discord alerts go to the webhook URL you paste (screenshots only if you
+  enable that), and the AI assistant talks to Anthropic only once you add your API key. With neither set,
+  nothing leaves your PC. OCR runs offline.
 - No administrator rights, drivers, memory access, process injection or anti-cheat evasion.
 - Not affiliated with Roblox Corporation or the developers of Fisch. Product inspiration was taken from the
   general concept of existing macro tools; all code and artwork here is original.

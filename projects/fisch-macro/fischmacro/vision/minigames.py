@@ -67,6 +67,40 @@ def detect_timing(crop: np.ndarray | None, pointer_color: str, pointer_tol: int,
     return res
 
 
+def detect_timing_auto(crop: np.ndarray | None, axis: str = "horizontal") -> TimingResult:
+    """Colour-free Lullaby reading for any rod skin: the pendulum is the thin line that stands out,
+    lit sections are the stretches clearly brighter than the rest of the track."""
+    from fischmacro.vision.detectors import shape_fish
+    if crop is None or crop.size == 0:
+        return TimingResult()
+    if axis == "vertical":
+        crop = cv2.rotate(crop, cv2.ROTATE_90_CLOCKWISE)
+    h, w = crop.shape[:2]
+    res = TimingResult()
+    found = shape_fish(crop, (2, w - 2))
+    if found is None or found[1] < 0.5:
+        return res
+    px, conf, pw = found
+    res.pointer, res.present, res.confidence = px, True, conf
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    y0, y1 = int(h * 0.2), max(int(h * 0.2) + 1, int(h * 0.8))
+    v = hsv[y0:y1, :, 2].astype(np.float32).mean(axis=0)
+    sat = hsv[y0:y1, :, 1].astype(np.float32).mean(axis=0)
+    score = v + 0.5 * sat
+    c = int(px * w)
+    pad = max(2, pw + 1)
+    score[max(0, c - pad):c + pad + 1] = np.nan
+    base = float(np.nanmedian(score))
+    lit = np.nan_to_num(score, nan=-1) > base + 35
+    # bridge the pendulum: it hides part of a lit section
+    if c - pad - 1 >= 0 and c + pad + 1 < w and lit[c - pad - 1] and lit[c + pad + 1]:
+        lit[max(0, c - pad):c + pad + 1] = True
+    res.segments = [(a / w, b / w) for a, b in _runs(lit, max_gap=max(2, int(0.02 * w))) if b - a >= 0.02 * w]
+    if not res.segments:
+        res.confidence *= 0.5
+    return res
+
+
 @dataclass
 class MatchOption:
     x: float          # centre, client-normalised

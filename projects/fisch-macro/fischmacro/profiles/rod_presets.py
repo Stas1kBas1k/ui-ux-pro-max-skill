@@ -21,9 +21,9 @@ class RodPreset:
 
 PRESETS: list[RodPreset] = [
     RodPreset("Lullaby", ("lullaby",),
-              {"minigame.kind": "lullaby", "minigame.keep_reeling": True},
-              "Metronome: clicks when the pendulum is over a lit section. Press Q to pick a mode "
-              "(set 'Mode key presses'). Calibrate the minigame area and colours once."),
+              {"minigame.kind": "lullaby", "minigame.keep_reeling": False},
+              "Metronome: clicks only when the pendulum is over a lit section (every click off a section costs "
+              "5% progress, so the bar is left alone). Pick the mode on the Fishing page."),
     RodPreset("Stellarwave Melody", ("stellarwave",),
               {"minigame.kind": "stellarwave", "minigame.keep_reeling": True},
               "Zodiac wheel: clicks the star sign that matches the one shown. Calibrate the target sign and the "

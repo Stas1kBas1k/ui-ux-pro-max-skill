@@ -9,7 +9,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
 
 from fischmacro.automation.engine import EngineSnapshot
-from fischmacro.profiles.schema import DEFAULT_REGIONS, DetectionConfig
 from fischmacro.ui.icons import icon
 from fischmacro.ui.theme import C
 from fischmacro.ui.widgets import Card, label
@@ -44,16 +43,16 @@ class SetupChecklist(Card):
         self.add(top)
         self.steps = [
             Step("risk", "Accept the risk notice", "Automation can carry account risk.", "Review", actions["risk"]),
-            Step("window", "Find the Roblox window", "Open Fisch windowed or borderless, then start the preview.",
+            Step("live", "Use the real game", "The app is in test mode with a built-in pretend game.",
+                 "Use Roblox", actions["live"]),
+            Step("window", "Find the Roblox window", "Open Fisch (windowed or fullscreen), then start the preview.",
                  "Start preview", actions["preview"]),
-            Step("regions", "Calibrate the reel bar", "Auto-calibrate, then fish once - the bar is found by itself.",
-                 "Auto-calibrate", actions["autocal"]),
-            Step("colors", "Sample the game colours", "Done automatically by auto-calibration (and on rod/skin changes).",
-                 "Auto-calibrate", actions["autocal"]),
-            Step("reel_seen", "See the minigame in the live preview", "Fish manually and check the reel is tracked.",
-                 "Open vision", actions["vision"]),
-            Step("first_catch", "Get your first confirmed catch", "Press Start (F6) with Roblox focused.",
-                 "Start", actions["start"]),
+            Step("scale", "Windows display scale at 100%", "Higher scaling can make the bar drift in game.",
+                 "Display settings", actions["display"]),
+            Step("rod", "Pick your rod", "Or let the app read it from the screen (Automatic).",
+                 "Choose rod", actions["fishing"]),
+            Step("first_catch", "Catch your first fish", "Press Start (F6) with Roblox focused - no calibration "
+                 "needed, any rod skin works.", "Start", actions["start"]),
         ]
         grid = QGridLayout()
         grid.setVerticalSpacing(8)
@@ -99,13 +98,14 @@ class SetupChecklist(Card):
             prog["reel_seen"] = changed = True
         if changed:
             self.ctx.save_settings()
-        d = DetectionConfig()
+        from fischmacro.vision.win32 import display_scale_percent
+        scale = display_scale_percent()
         return {
             "risk": s.risk_acknowledged,
+            "live": live,
             "window": bool(prog.get("window")),
-            "regions": p.region("reel") != DEFAULT_REGIONS["reel"],
-            "colors": p.detection.fish_color != d.fish_color or p.detection.bar_color != d.bar_color,
-            "reel_seen": bool(prog.get("reel_seen")),
+            "scale": scale is None or scale == 100,
+            "rod": s.rod_detect.enabled or p.equipment.rod_name not in ("", "Any rod"),
             "first_catch": self._real_catches > 0,
         }
 

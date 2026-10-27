@@ -257,6 +257,9 @@ QLabel#sectionTitle {{ color: {c['faint']}; font-size: {pt(8)}; font-weight: 700
 QFrame#rowGroup {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 12px; }}
 QTabWidget#settingsHub::tab-bar {{ left: 22px; }}
 QTabWidget#settingsHub > QTabBar::tab {{ margin-top: 12px; }}
+QTextBrowser#chat {{ background: {c['card']}; border: 1px solid {c['border']}; border-radius: 14px; padding: 8px; }}
+QLineEdit#statusLine {{ background: transparent; border: none; color: {c['muted']}; padding: 2px; }}
+QFrame#miniCard {{ background: {c['card']}; border: 1px solid {c['border_hi']}; border-radius: 16px; }}
 QFrame#vSep {{ background: {c['border']}; max-width: 1px; min-width: 1px; margin: 4px 0; }}
 QLabel#stripValue {{ font-size: {pt(17)}; font-weight: 800; background: transparent; }}
 QFrame#rowSep {{ background: {c['border']}; max-height: 1px; min-height: 1px; margin: 0 14px; }}

@@ -50,10 +50,14 @@ class SimulatedFischGame:
         self.bar_width: float | None = None
         self.progress_gain = 0.30
         self.progress_drain = 0.20
+        # Fancy rod skin (see random_skin); None = the plain default look
+        self.skin: dict | None = None
         # Rod minigame on top of the reel: None | "lullaby" | "stellarwave" | "targets"
         self.rod_minigame: str | None = None
         self.mini_action = "click"     # or a key name
         self.mini_period = 1.4         # lullaby pendulum period (s)
+        self.input_latency = 0.04      # a click lands this long after the frame it was decided on
+        self._pending_clicks: list[float] = []
         self._segments: list[tuple[float, float]] = []
         self._signs: list[tuple[str, float, float]] = []
         self._target_sign = ""
@@ -165,7 +169,10 @@ class SimulatedFischGame:
             elif self.state == "waiting":
                 self._set("idle")  # clicking while the line is out reels it back in
             elif self.state == "reel" and self.mini_action == "click":
-                self._mini_action()
+                if self.rod_minigame == "lullaby" and self.input_latency > 0:
+                    self._pending_clicks.append(self.t + self.input_latency)  # lands a little later, as in game
+                else:
+                    self._mini_action()
             elif self.state == "disconnected":
                 x, y, w, h = self._rect("reconnect_button")
                 cx, cy = self.cursor
@@ -209,7 +216,10 @@ class SimulatedFischGame:
             elif k == "q" and self.state == "reel":
                 self.stats.mode_presses += 1
             elif self.state == "reel" and self.rod_minigame and k == self.mini_action:
-                self._mini_action()
+                if self.rod_minigame == "lullaby" and self.input_latency > 0:
+                    self._pending_clicks.append(self.t + self.input_latency)
+                else:
+                    self._mini_action()
 
     def disconnect(self) -> None:
         with self.lock:
@@ -263,9 +273,9 @@ class SimulatedFischGame:
             a = self.rng.uniform(0.05, 0.95 - w)
             self._segments.append((a, a + w))
 
-    def _pointer(self) -> float:
+    def _pointer(self, ahead: float = 0.0) -> float:
         import math
-        return 0.5 + 0.47 * math.sin(2 * math.pi * (self.t - self.state_t) / self.mini_period)
+        return 0.5 + 0.47 * math.sin(2 * math.pi * (self.t + ahead - self.state_t) / self.mini_period)
 
     _SIGNS = ("circle", "triangle", "square", "cross")
 
@@ -284,12 +294,15 @@ class SimulatedFischGame:
     def _mini_action(self) -> None:
         kind = self.rod_minigame
         if kind == "lullaby":
+            if self.t - self.state_t < 1.2:
+                return  # in game, clicks in the first 1.2 s of a reel count for nothing
             p = self._pointer()
             if any(a <= p <= b for a, b in self._segments):
                 self.stats.mini_hits += 1
                 self._new_segments()
             else:
                 self.stats.mini_misses += 1
+                self.progress = max(0.0, self.progress - 0.05)  # as in game: a miss costs 5% progress
         elif kind in ("stellarwave", "targets"):
             cx, cy = self.cursor[0] / self.width, self.cursor[1] / self.height
             if kind == "stellarwave":
@@ -315,11 +328,12 @@ class SimulatedFischGame:
         if kind == "lullaby":
             x, y, w, h = self._rect("mini")
             ty0, ty1 = y + int(h * 0.35), y + int(h * 0.65)
-            cv2.rectangle(img, (x, ty0), (x + w, ty1), (60, 40, 40), -1)
+            k = self.skin or {}
+            cv2.rectangle(img, (x, ty0), (x + w, ty1), k.get("track_top", (60, 40, 40)), -1)
             for a, b in self._segments:
-                cv2.rectangle(img, (x + int(a * w), ty0), (x + int(b * w), ty1), (74, 213, 255), -1)  # #FFD54A
+                cv2.rectangle(img, (x + int(a * w), ty0), (x + int(b * w), ty1), k.get("lit", (74, 213, 255)), -1)
             px = x + int(self._pointer() * w)
-            cv2.rectangle(img, (px - 2, y), (px + 2, y + h), (255, 255, 255), -1)
+            cv2.rectangle(img, (px - 2, y), (px + 2, y + h), k.get("pointer", (255, 255, 255)), -1)
         elif kind == "stellarwave":
             self._draw_sign(img, self._target_sign, self.regions["mini_target"].center(), 0.035)
             for n, sx, sy in self._signs:
@@ -357,6 +371,10 @@ class SimulatedFischGame:
     def step(self, dt: float) -> None:
         with self.lock:
             self.t += dt
+            while self._pending_clicks and self._pending_clicks[0] <= self.t:
+                self._pending_clicks.pop(0)
+                if self.state == "reel":
+                    self._mini_action()
             s = self.state
             if s == "waiting" and self.t >= self.bite_at:
                 self._set("shake")
@@ -489,7 +507,45 @@ class SimulatedFischGame:
                 img = np.clip(img.astype(np.float32) + n, 0, 255).astype(np.uint8)
             return img
 
+    def _render_skinned_reel(self, img: np.ndarray) -> None:
+        """Skinned reel like real rod skins: ornament frame at the ends, vertical gradient track,
+        see-through bar, fish drawn as a thin marker with an outline."""
+        k = self.skin
+        x, y, rw, rh = self._rect("reel")
+        orn = int(rw * k["ornament"])
+        tx0, tx1 = x + orn, x + rw - orn
+        # frame / ornaments (static decoration)
+        cv2.rectangle(img, (x, y - 4), (x + rw, y + rh + 4), k["frame"], -1)
+        if orn:
+            for cx in (x + orn // 2, x + rw - orn // 2):
+                cv2.circle(img, (cx, y + rh // 2), max(4, rh // 2 + 3), k["ornament_col"], -1)
+                cv2.circle(img, (cx, y + rh // 2), max(2, rh // 4), k["frame"], -1)
+        top, bot = np.array(k["track_top"], np.float32), np.array(k["track_bot"], np.float32)
+        for i in range(rh):
+            col = top + (bot - top) * (i / max(1, rh - 1))
+            img[y + i, tx0:tx1] = col.astype(np.uint8)
+        cv2.rectangle(img, (tx0, y), (tx1, y + rh), k["outline"], 1)
+        tw = tx1 - tx0
+        bx0 = tx0 + int(self.bar_x * tw)
+        bx1 = tx0 + int((self.bar_x + self.bar_w) * tw)
+        a = k["bar_alpha"]
+        seg = img[y + 1:y + rh - 1, bx0:bx1].astype(np.float32)
+        img[y + 1:y + rh - 1, bx0:bx1] = (seg * (1 - a) + np.array(k["bar"], np.float32) * a).astype(np.uint8)
+        fx = tx0 + int(self.fish_x * tw)
+        fw = max(3, int(0.012 * tw))
+        cv2.rectangle(img, (fx - fw // 2 - 1, y + 1), (fx + fw // 2 + 1, y + rh - 2), k["outline"], -1)
+        cv2.rectangle(img, (fx - fw // 2 + 1, y + 2), (fx + fw // 2 - 1, y + rh - 3), k["fish"], -1)
+        c = self.colors
+        px, py, pw, ph = self._rect("progress")
+        cv2.rectangle(img, (px, py), (px + pw, py + ph), k["frame"], -1)
+        fill = int(pw * self.progress)
+        if fill > 0:
+            cv2.rectangle(img, (px, py), (px + fill, py + ph), hex_to_bgr(c.progress_color), -1)
+
     def _render_reel(self, img: np.ndarray) -> None:
+        if self.skin:
+            self._render_skinned_reel(img)
+            return
         c = self.colors
         x, y, rw, rh = self._rect("reel")
         cv2.rectangle(img, (x - 3, y - 3), (x + rw + 3, y + rh + 3), (20, 20, 20), -1)
@@ -534,3 +590,19 @@ class SimulatedInputBackend(InputBackend):
     def key(self, down, key):
         if down:
             self.game.key(key)
+
+
+def random_skin(seed: int) -> dict:
+    """A random rod skin for the reel: colours, see-through bar and ornament frame (BGR tuples)."""
+    r = random.Random(seed)
+
+    def col(lo=0, hi=255):
+        return tuple(r.randint(lo, hi) for _ in range(3))
+    track_top = col(20, 140)
+    return {
+        "frame": col(10, 90), "ornament_col": col(60, 255), "ornament": r.choice([0.0, 0.08, 0.13]),
+        "track_top": track_top, "track_bot": tuple(min(255, max(0, v + r.randint(-60, 60))) for v in track_top),
+        "outline": col(0, 40), "bar": col(150, 255), "bar_alpha": r.uniform(0.35, 0.8), "fish": col(0, 255),
+        "lit": tuple(min(255, v + 120) for v in track_top), "pointer": r.choice([(255, 255, 255), col(0, 60),
+                                                                                    col(160, 255)]),
+    }
