@@ -29,6 +29,10 @@ class DashboardPage(QWidget):
     start_requested = Signal()
     pause_requested = Signal()
     stop_requested = Signal()
+    risk_requested = Signal()
+    preview_requested = Signal()
+    calibrate_requested = Signal()
+    vision_requested = Signal()
 
     def __init__(self, ctx):
         super().__init__()
@@ -90,6 +94,14 @@ class DashboardPage(QWidget):
         self.pause_btn.clicked.connect(self.pause_requested)
         self.stop_btn.clicked.connect(self.stop_requested)
         root.addWidget(self.hero)
+
+        from fischmacro.ui.setup_checklist import SetupChecklist
+        self.checklist = SetupChecklist(ctx, {
+            "risk": self.risk_requested.emit, "preview": self.preview_requested.emit,
+            "calibrate": self.calibrate_requested.emit, "vision": self.vision_requested.emit,
+            "start": self.start_requested.emit,
+        })
+        root.addWidget(self.checklist)
 
         self.banner = label("", "banner", wrap=True)
         self.banner.hide()
@@ -185,6 +197,7 @@ class DashboardPage(QWidget):
         self.error_banner.setVisible(bool(s.last_error))
         self.error_banner.setText(f"Stopped: {s.last_error}" if s.last_error else "")
 
+        self.checklist.refresh(s)
         self.t_state.set(s.fsm_state.replace("_", " "))
         self.t_game.set(s.game_state)
         sess = s.session

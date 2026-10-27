@@ -227,7 +227,8 @@ class ReelGraph(QWidget):
         p.setPen(QColor(C["muted"]))
         p.drawText(QRectF(10, track.bottom() + 24, w - 20, 20), Qt.AlignLeft | Qt.AlignVCenter,
                    f"error {d.error:+.3f}   fish v {d.fish_v:+.2f}/s   duty {d.duty:.0%}   "
-                   f"{'HOLD' if d.hold else 'release'}   [{d.reason}]")
+                   f"{'HOLD' if d.hold else 'release'}   hover {d.hover:.2f}{' (learned)' if d.hover_learned else ''}"
+                   f"   [{d.reason}]")
 
 
 # --------------------------------------------------------------------------- editors

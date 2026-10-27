@@ -91,9 +91,43 @@ def pt(size_at_10: float) -> str:
     return f"{size_at_10 * STATE['base_pt'] / 10:.1f}pt"
 
 
+def _arrow_files() -> dict[str, str]:
+    """Write small themed chevron SVGs for spin boxes and combo boxes; return QSS-ready paths."""
+    from fischmacro import paths
+    folder = paths.data_dir() / "ui-cache"
+    folder.mkdir(parents=True, exist_ok=True)
+    col = C["muted"]
+    shapes = {"up": "M4 10 8 6l4 4", "down": "M4 6l4 4 4-4"}
+    out = {}
+    for name, d in shapes.items():
+        f = folder / f"chevron-{name}-{col.lstrip('#')}.svg"
+        if not f.exists():
+            f.write_text(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="{col}" '
+                         f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="{d}"/></svg>')
+        out[name] = f.as_posix()
+    return out
+
+
 def stylesheet() -> str:
     c = C
     sel = rgba(c["primary"], 0.22)
+    try:
+        arrows = _arrow_files()
+    except OSError:
+        arrows = {}
+    arrow_css = ""
+    if arrows:
+        arrow_css = f"""
+QSpinBox, QDoubleSpinBox {{ padding-right: 24px; }}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-origin: border; subcontrol-position: top right;
+    width: 22px; border: none; border-left: 1px solid {c['border']}; border-top-right-radius: 9px; background: {c['card_hi']}; }}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{ subcontrol-origin: border; subcontrol-position: bottom right;
+    width: 22px; border: none; border-left: 1px solid {c['border']}; border-bottom-right-radius: 9px; background: {c['card_hi']}; }}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{ background: {c['border_hi']}; }}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image: url("{arrows['up']}"); width: 11px; height: 11px; }}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ image: url("{arrows['down']}"); width: 11px; height: 11px; }}
+QComboBox::down-arrow {{ image: url("{arrows['down']}"); width: 12px; height: 12px; }}
+"""
     return f"""
 * {{ font-family: {FONT_STACK}; font-size: {pt(10)}; color: {c['text']}; }}
 QMainWindow, QWidget#root {{ background: {c['bg']}; }}
@@ -206,4 +240,4 @@ QMenu {{ background: {c['card_hi']}; border: 1px solid {c['border_hi']}; padding
 QMenu::item {{ padding: 6px 18px; border-radius: 6px; }}
 QMenu::item:selected {{ background: {c['primary']}; color: {c['on_primary']}; }}
 QMessageBox, QDialog {{ background: {c['card']}; }}
-"""
+""" + arrow_css

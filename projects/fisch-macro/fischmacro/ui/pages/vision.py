@@ -64,6 +64,14 @@ class VisionPage(QWidget):
         tracker = Card("Reel tracker", "Red: fish. White: catch bar. Dashed cyan: predicted fish. Purple: hold duty.")
         self.graph = ReelGraph()
         tracker.add(self.graph)
+        row = QHBoxLayout()
+        self.hover_lbl = label("Hover duty: not learned yet - it is learned while reeling.", "faint")
+        self.hover_btn = QPushButton(icon("check"), "  Save learned hover duty to profile")
+        self.hover_btn.setEnabled(False)
+        self.hover_btn.clicked.connect(self._save_hover)
+        row.addWidget(self.hover_lbl, 1)
+        row.addWidget(self.hover_btn)
+        tracker.add(row)
         left.addWidget(tracker)
         main.addLayout(left, 3)
 
@@ -128,6 +136,13 @@ class VisionPage(QWidget):
             self.reg_table.setItem(row, 2, QTableWidgetItem(f"{r.x:.3f}, {r.y:.3f}, {r.w:.3f}, {r.h:.3f}"))
         self.reg_table.resizeColumnsToContents()
 
+    def _save_hover(self) -> None:
+        learned = self.ctx.engine.fsm.reel.hover.value
+        if learned is not None:
+            self.ctx.profile.reel.hold_bias = round(learned, 2)
+            self.ctx.save_profile()
+            self.hover_lbl.setText(f"Saved hover duty {learned:.2f} to profile '{self.ctx.profile.name}'.")
+
     def _toggle_region(self, name: str, value: bool) -> None:
         self.ctx.profile.region(name).enabled = value
         self.ctx.profile_edited()
@@ -163,6 +178,10 @@ class VisionPage(QWidget):
             d["disc"].setText("DETECTED" if obs.disconnect.detected else "no")
             d["disc"].setStyleSheet(f"color: {C['danger'] if obs.disconnect.detected else C['text']};")
             self.graph.set_data(s.reel if st == Status.RUNNING else None, r.present and st == Status.RUNNING)
+        learned = self.ctx.engine.fsm.reel.hover.value
+        self.hover_btn.setEnabled(learned is not None)
+        if learned is not None and not self.hover_lbl.text().startswith("Saved"):
+            self.hover_lbl.setText(f"Learned hover duty {learned:.2f} (profile: {self.ctx.profile.reel.hold_bias:.2f})")
         d["perf"].setText(f"{s.fps:.0f} fps, capture {s.capture_ms:.1f} ms, vision {s.process_ms:.1f} ms")
 
         now = time.monotonic()

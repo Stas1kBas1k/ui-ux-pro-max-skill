@@ -119,6 +119,13 @@ class StatsStore:
         return {"cycles": row[0], "success": row[1], "failure": row[2], "unconfirmed": row[3],
                 "avg_duration": row[4] or 0.0, "recoveries": rec, "errors": err}
 
+    def real_catches(self) -> int:
+        """Confirmed catches from live (non-simulated) sessions."""
+        with self._lock:
+            row = self._conn.execute("SELECT COUNT(*) FROM cycles c JOIN sessions s ON s.id = c.session_id "
+                                     "WHERE s.simulated = 0 AND c.outcome = 'success'").fetchone()
+        return int(row[0])
+
     def recent_events(self, kinds: tuple[str, ...], limit: int = 200) -> list[dict]:
         q = ",".join("?" * len(kinds))
         with self._lock:

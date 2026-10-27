@@ -116,6 +116,9 @@ class SettingsPage(QWidget):
         about.add(label(f"Fisch Macro {__version__} - an independent, open tool. Not affiliated with Roblox or the "
                         f"Fisch developers.", "muted", wrap=True))
         h = QHBoxLayout()
+        show_setup = QPushButton(icon("check"), "  Show setup checklist")
+        show_setup.clicked.connect(self._show_setup)
+        h.addWidget(show_setup)
         reset = QPushButton(icon("reset"), "  Reset application settings")
         reset.clicked.connect(self._reset)
         h.addWidget(reset)
@@ -123,6 +126,10 @@ class SettingsPage(QWidget):
         about.add(h)
         root.addWidget(about)
         root.addStretch(1)
+
+    def _show_setup(self) -> None:
+        self.ctx.settings.setup_dismissed = False
+        self.ctx.save_settings()
 
     def _pick_theme(self, name: str) -> None:
         if name != self.ctx.settings.appearance.theme:

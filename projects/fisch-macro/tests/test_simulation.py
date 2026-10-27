@@ -69,3 +69,14 @@ def test_auto_reconnect_end_to_end():
     assert done["x"]
     assert res.outcomes.get("success", 0) >= 3
     assert any("Reconnect" in m for _, m in res.events)
+
+
+def test_auto_hover_learns_asymmetric_rod():
+    """A rod whose bar rises fast and falls slowly (true hover duty 0.25) is learned while reeling."""
+    p = Profile()
+    game = SimulatedFischGame(seed=2, difficulty=0.5)
+    game.accel_hold, game.accel_release = 3.6, 1.2
+    res = run_simulation(p, game=game, cycles=3, max_time=400)
+    learned = res.fsm.reel.hover.value
+    assert learned is not None and abs(learned - 0.25) < 0.06
+    assert res.outcomes.get("success", 0) >= 2

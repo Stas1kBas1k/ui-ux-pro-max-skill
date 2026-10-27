@@ -40,6 +40,9 @@ class SimulatedFischGame:
         self.rng = random.Random(seed)
         self.np_rng = np.random.default_rng(seed)
         self.difficulty = difficulty
+        # Rod physics: bar acceleration while held / released. Hover duty = release / (hold + release).
+        self.accel_hold = 2.4
+        self.accel_release = 2.4
         self.noise = noise
         self.regions = regions or DEFAULT_REGIONS
         self.colors = colors or DetectionConfig()
@@ -216,7 +219,7 @@ class SimulatedFischGame:
                 self._set("idle")
 
     def _reel_step(self, dt: float) -> None:
-        accel = 2.4 if self.mouse_held else -2.4
+        accel = self.accel_hold if self.mouse_held else -self.accel_release
         self.bar_v += accel * dt
         self.bar_v *= max(0.0, 1.0 - 1.2 * dt)
         self.bar_x += self.bar_v * dt

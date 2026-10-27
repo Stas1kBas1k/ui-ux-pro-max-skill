@@ -65,7 +65,7 @@ class LogsPage(QWidget):
             t.setEditTriggers(QTableWidget.NoEditTriggers)
             t.setAlternatingRowColors(True)
         tabs.addTab(self.sessions, "Session history")
-        tabs.addTab(self.events, "Recoveries & errors")
+        tabs.addTab(self.events, "Recoveries && errors")
         logw = QWidget()
         lv = QVBoxLayout(logw)
         lv.setContentsMargins(0, 8, 0, 0)

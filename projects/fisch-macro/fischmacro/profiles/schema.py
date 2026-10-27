@@ -142,6 +142,8 @@ class ReelConfig:
     lookahead: float = opt(0.08, "Prediction look-ahead", "Seconds of fish motion to predict.", min=0.0, max=0.5, step=0.01, decimals=2, suffix=" s")
     smoothing: float = opt(0.5, "Velocity smoothing", "0 = raw, 0.95 = very smooth.", min=0.0, max=0.95, step=0.05, decimals=2)
     hold_bias: float = opt(0.5, "Hover duty", "Fraction of time held that keeps the bar still (rod dependent).", min=0.05, max=0.95, step=0.01, decimals=2)
+    auto_hover: bool = opt(True, "Auto-tune hover duty", "Learns the rod's hover duty from how the bar responds while reeling. "
+                           "Starts from the value above and adapts within a few seconds.")
     edge_margin: float = opt(0.07, "Edge margin", "Near an edge the bar is driven fully toward it.", min=0.0, max=0.3, step=0.01, decimals=2)
     max_hold_seconds: float = opt(3.0, "Max continuous hold", "Safety limit on holding the mouse.", min=0.2, max=15.0, step=0.1, decimals=1, suffix=" s")
     min_confidence: float = opt(0.45, "Reel min confidence", "Below this the mouse is released.", min=0.05, max=0.99, step=0.05, decimals=2)
@@ -287,6 +289,8 @@ class AppSettings:
     appearance: AppearanceConfig = field(default_factory=AppearanceConfig)
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     window_geometry: str = ""
+    setup_dismissed: bool = False
+    setup_progress: dict[str, bool] = field(default_factory=dict)  # milestones seen in the live game
     overlay_enabled: bool = False
 
 

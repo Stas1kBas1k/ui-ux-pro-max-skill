@@ -70,3 +70,30 @@ def test_velocity_spikes_are_clamped():
     c.update(0.1, 0.4, 0.6, 0.0)
     c.update(0.9, 0.4, 0.6, 0.0001)  # absurd jump in 0.1 ms
     assert abs(c.debug.fish_v) <= 5.0
+
+
+def test_hover_estimator_recovers_true_duty():
+    from fischmacro.automation.reel_controller import HoverEstimator
+    import random
+    rnd = random.Random(1)
+    est = HoverEstimator()
+    k, true_hover = 3.0, 0.3  # a = k * (hold - hover) + noise
+    for _ in range(600):
+        h = 1.0 if rnd.random() < 0.5 else 0.0
+        est.add(h, k * (h - true_hover) + rnd.gauss(0, 1.0))
+    assert est.value is not None and abs(est.value - true_hover) < 0.06
+
+
+def test_hover_estimator_needs_both_input_states():
+    from fischmacro.automation.reel_controller import HoverEstimator
+    est = HoverEstimator()
+    for _ in range(200):
+        est.add(1.0, 2.0)  # only ever held: no information about the release side
+    assert est.value is None
+
+
+def test_auto_hover_off_uses_configured_bias():
+    c = ReelController(ReelConfig(auto_hover=False, hold_bias=0.4))
+    c.hover.value = 0.8
+    c.update(0.5, 0.4, 0.6, 0.0)
+    assert c.debug.hover == 0.4 and not c.debug.hover_learned

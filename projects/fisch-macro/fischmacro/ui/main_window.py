@@ -116,6 +116,10 @@ class MainWindow(QMainWindow):
         self.dashboard.start_requested.connect(self.start_automation)
         self.dashboard.pause_requested.connect(self.ctx.engine.toggle_pause)
         self.dashboard.stop_requested.connect(self.emergency_stop)
+        self.dashboard.risk_requested.connect(self._review_risk)
+        self.dashboard.preview_requested.connect(self._start_preview)
+        self.dashboard.calibrate_requested.connect(self.toggle_calibration)
+        self.dashboard.vision_requested.connect(lambda: self.select_page(2))
         self.vision.calibrate_requested.connect(self.toggle_calibration)
         self.vision.snapshot_requested.connect(self.diagnostic_snapshot)
         self.vision.overlay_toggled.connect(self.set_overlay)
@@ -338,6 +342,15 @@ class MainWindow(QMainWindow):
             return
         self.ctx.save_profile()
         self.ctx.engine.start_automation()
+
+    def _review_risk(self) -> None:
+        self.ctx.settings.risk_acknowledged = False
+        self.ensure_acknowledged()
+
+    def _start_preview(self) -> None:
+        self.select_page(2)
+        if self.ctx.engine.status == Status.STOPPED:
+            self.ctx.engine.start_vision()
 
     def emergency_stop(self) -> None:
         self.ctx.engine.emergency_stop()

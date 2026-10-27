@@ -5,7 +5,13 @@ vision. It watches the game, recognises what is on screen (cast power bar, shake
 catch results, disconnect dialogs) and sends normal mouse/keyboard input through a finite-state machine and a
 feedback controller.
 
-![Dashboard](assets/hero.png)
+![Dashboard while fishing (simulation mode)](docs/screenshots/dashboard.png)
+
+| Computer Vision page | Calibration tool |
+|---|---|
+| ![Live preview with detections and the reel tracker](docs/screenshots/vision.png) | ![Dragging regions over a frozen screenshot](docs/screenshots/calibration.png) |
+| **Setup checklist** | **Themes** (Deep Ocean, Arctic Light, ...) |
+| ![First-run checklist](docs/screenshots/checklist.png) | ![Theme gallery](docs/screenshots/settings-themes.png) |
 
 > **Account risk.** Third-party automation can break Roblox's Terms of Use or Fisch's rules and may get your
 > account restricted. Fisch Macro does **not** read game memory, inject code or bypass anti-cheat. It only
@@ -56,6 +62,11 @@ feedback controller.
 - **Reel solver**: PD controller with velocity feed-forward and look-ahead prediction. Gains are normalised by
   bar width. Sigma-delta conversion turns the controller output into hold/release decisions, with edge rules
   and safety limits (maximum continuous hold, release on low confidence or lost fish).
+- **Hover-duty auto-tune** (on by default): learns each rod's "hover duty", the hold fraction that keeps the bar
+  still, from how the bar actually responds while you reel. It regresses bar acceleration on hold state, with
+  forgetting so it adapts to the current rod. You can save the learned value to the profile from the Computer
+  Vision page. In the simulator it lands within about 0.02 of the true value. On strongly lopsided rods it
+  raised catches from 10/16 to 14/16 and from 10/16 to 12/16.
 - **Outcome detection**: success, failure or *unconfirmed*, decided from the final progress value or a catch
   template. The app never claims a catch it couldn't see.
 - **Recovery**: on timeout it releases input, optionally clicks to reel the line in and re-equips, then
@@ -77,6 +88,9 @@ feedback controller.
 
 **App**
 - Pages: Dashboard, Automation, Computer Vision, Profiles, Hotkeys, Settings, Logs & Statistics.
+- A **"Get ready for Fisch" checklist** on the dashboard tracks real setup progress: risk notice, game window
+  found, reel calibrated, colours sampled, minigame seen in the live preview, first live catch. Each step has a
+  button that jumps to the right place. Hide it once you're set up; it can be shown again from Settings.
 - **Six themes**: Midnight Violet, Deep Ocean, Abyss Emerald, Coral Reef, Arctic Light and High Contrast.
 - Three text sizes (Compact, Comfortable, Large) and a reduce-motion option.
 - Original 3D artwork rendered with Blender from a script in the repo (`packaging/blender/render_assets.py`).
@@ -172,8 +186,8 @@ and between versions.
 
 | Symptom | Change |
 |---|---|
-| Bar drifts left even when the fish is centred | raise **Hover duty** |
-| Bar drifts right | lower **Hover duty** |
+| Bar drifts left even when the fish is centred | let **auto-tune** learn the hover duty (or raise **Hover duty**) |
+| Bar drifts right | let **auto-tune** learn the hover duty (or lower **Hover duty**) |
 | Bar is too slow to follow a fast fish | raise **Kp** or **feed-forward** |
 | Bar overshoots and oscillates | raise **Kd**, lower **Kp** |
 | Jittery input on a noisy detection | raise **Velocity smoothing** |
@@ -238,6 +252,7 @@ fischmacro/
   simulation/    simulated Fisch-like game and the closed-loop harness
 tests/           unit, integration, end-to-end simulation and offscreen UI tests; fixtures/
 assets/          Blender-rendered logo, icon and banner
+docs/screenshots README screenshots (rendered from the real app in simulation mode)
 packaging/       PyInstaller spec, Windows build script, Blender render script, icon script
 ```
 
@@ -280,7 +295,7 @@ Verified in this repository (automated tests, run on Linux and in the Windows CI
 - Detectors against saved synthetic screenshots at 640×360, 1280×720, 1600×900 and 1920×1080, with noise
   and JPEG artefacts, plus template matching across scales.
 - Reel controller maths, and closed-loop catching in the simulator: 5/5 cycles at three difficulties,
-  1080p with noise, 20 FPS, and navigation mode.
+  1080p with noise, 20 FPS, and navigation mode. Hover-duty auto-tune learns an asymmetric rod correctly.
 - Profile persistence, hotkey parsing / auto-repeat / conflicts, the input kill switch, emergency stop,
   behaviour when Roblox is closed or capture fails, and focus loss.
 - The UI builds offscreen in every theme and text size, calibration saves, and buttons drive the engine.

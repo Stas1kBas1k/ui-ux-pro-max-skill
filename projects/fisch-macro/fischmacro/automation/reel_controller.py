@@ -33,15 +33,52 @@ class ReelDebug:
     duty: float = 0.0
     hold: bool = False
     reason: str = ""
+    hover: float = 0.5
+    hover_learned: bool = False
 
 
 def _clamp(v: float, lo: float, hi: float) -> float:
     return lo if v < lo else hi if v > hi else v
 
 
+class HoverEstimator:
+    """Online estimate of the hover duty from (hold, bar acceleration) samples.
+
+    Bar acceleration is modelled as ``a = alpha * hold + beta``; the duty that
+    gives zero mean acceleration is ``-beta / alpha``. Sums decay exponentially
+    so the estimate follows the current rod.
+    """
+
+    def __init__(self, forget: float = 0.997, min_samples: float = 40.0):
+        self.forget = forget
+        self.min_samples = min_samples
+        self.n = self.sh = self.shh = self.sa = self.sah = 0.0
+        self.value: float | None = None
+
+    def add(self, hold: float, accel: float) -> None:
+        f = self.forget
+        self.n = f * self.n + 1.0
+        self.sh = f * self.sh + hold
+        self.shh = f * self.shh + hold * hold
+        self.sa = f * self.sa + accel
+        self.sah = f * self.sah + accel * hold
+        if self.n < self.min_samples:
+            return
+        mh, ma = self.sh / self.n, self.sa / self.n
+        var = self.shh / self.n - mh * mh
+        if var < 0.04 or not (0.1 < mh < 0.9):  # need both held and released samples
+            return
+        alpha = (self.sah / self.n - mh * ma) / var
+        if alpha <= 0.05:
+            return
+        estimate = _clamp(-(ma - alpha * mh) / alpha, 0.1, 0.9)
+        self.value = estimate if self.value is None else 0.9 * self.value + 0.1 * estimate
+
+
 class ReelController:
     def __init__(self, cfg: ReelConfig):
         self.cfg = cfg
+        self.hover = HoverEstimator()  # kept across minigames: the rod does not change mid-session
         self.reset()
 
     def reset(self) -> None:
@@ -54,6 +91,7 @@ class ReelController:
         self._hold = False
         self._hold_since: float | None = None
         self._last_switch = -1e9
+        self._raw_bv: float | None = None
         self.debug = ReelDebug()
 
     def update(self, fish_x: float, bar_left: float, bar_right: float, now: float,
@@ -72,6 +110,12 @@ class ReelController:
             raw_bv = _clamp(raw_bv, -5.0, 5.0)
             self.fish_v = a * self.fish_v + (1 - a) * raw_fv
             self.bar_v = a * self.bar_v + (1 - a) * raw_bv
+            # Learn hover duty from the input applied during the last interval, away from the walls.
+            if self._raw_bv is not None and bar_left > 0.03 and bar_right < 0.97:
+                accel = (raw_bv - self._raw_bv) / dt
+                if abs(accel) < 60.0:
+                    self.hover.add(1.0 if self._hold else 0.0, accel)
+            self._raw_bv = raw_bv
         self._t, self._fish, self._bar = now, fish_x, bar_c
 
         predicted = _clamp(fish_x + self.fish_v * c.lookahead, 0.0, 1.0)
@@ -80,7 +124,8 @@ class ReelController:
         e_n = error / bar_w
         de_n = (self.fish_v - self.bar_v) / bar_w
         command = c.kp * e_n + c.kd * de_n + c.feedforward * self.fish_v / bar_w
-        duty = _clamp(c.hold_bias + command, 0.0, 1.0)
+        bias = self.hover.value if (c.auto_hover and self.hover.value is not None) else c.hold_bias
+        duty = _clamp(bias + command, 0.0, 1.0)
         reason = "pd"
 
         # Edge rules: near a wall the bar should be pinned against it.
@@ -113,7 +158,7 @@ class ReelController:
         self._hold = want
 
         self.debug = ReelDebug(fish_x, self.fish_v, predicted, bar_c, self.bar_v, bar_w, error,
-                               command, duty, want, reason)
+                               command, duty, want, reason, bias, c.auto_hover and self.hover.value is not None)
         return want
 
     def release(self) -> None:
