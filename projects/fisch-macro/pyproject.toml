@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fischmacro"
+version = "1.0.0"
+description = "Computer-vision fishing automation for Roblox Fisch (local, no injection)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "PySide6>=6.6,<7",
+    "opencv-python-headless>=4.9",
+    "numpy>=1.26",
+    "mss>=9.0",
+    "pynput>=1.7.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pyinstaller>=6.5"]
+
+[project.gui-scripts]
+fischmacro = "fischmacro.app.main:main"
+
+[tool.setuptools.packages.find]
+include = ["fischmacro*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

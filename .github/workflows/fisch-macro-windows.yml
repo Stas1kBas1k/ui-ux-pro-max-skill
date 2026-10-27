@@ -1,0 +1,49 @@
+name: Fisch Macro (Windows build)
+
+on:
+  push:
+    paths:
+      - "projects/fisch-macro/**"
+      - ".github/workflows/fisch-macro-windows.yml"
+  pull_request:
+    paths:
+      - "projects/fisch-macro/**"
+      - ".github/workflows/fisch-macro-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: projects/fisch-macro
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+      - name: Run tests
+        run: python -m pytest -q
+      - name: Build executable
+        run: pyinstaller packaging/fischmacro.spec --noconfirm --clean
+      - name: Smoke-test executable (simulation mode, exits after 6 s)
+        shell: pwsh
+        run: |
+          $env:FISCHMACRO_HOME = "$env:RUNNER_TEMP\fischmacro-smoke"
+          $p = Start-Process -FilePath "dist\FischMacro\FischMacro.exe" -ArgumentList "--simulation","--smoke-test","6" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "FischMacro.exe exited with $($p.ExitCode)" }
+          Get-Content "$env:FISCHMACRO_HOME\logs\fischmacro.log" | Select-Object -Last 15
+          if (-not (Select-String -Path "$env:FISCHMACRO_HOME\logs\fischmacro.log" -Pattern "Fisch Macro started" -Quiet)) { throw "app did not start" }
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: FischMacro-windows
+          path: projects/fisch-macro/dist/FischMacro
+          retention-days: 14

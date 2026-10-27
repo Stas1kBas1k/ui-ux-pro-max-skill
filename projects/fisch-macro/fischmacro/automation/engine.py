@@ -272,6 +272,7 @@ class AutomationEngine:
             else:
                 s.unconfirmed += 1
             s.durations.append(float(data.get("duration", 0.0)))
+            s.history.append((str(outcome), float(data.get("duration", 0.0))))
             if self.stats_store:
                 self.stats_store.add_cycle(s.session_id, outcome, data.get("duration", 0.0), data.get("progress"),
                                            data.get("perfect_cast"), data.get("shake_clicks", 0))

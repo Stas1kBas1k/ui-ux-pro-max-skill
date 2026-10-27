@@ -256,6 +256,25 @@ class LoggingConfig:
 
 
 @dataclass
+class AppearanceConfig:
+    theme: str = opt("Midnight Violet", "Theme", choices=["Midnight Violet", "Deep Ocean", "Abyss Emerald", "Coral Reef",
+                                                         "Arctic Light", "High Contrast"])
+    text_size: str = opt("Comfortable", "Text size", choices=["Compact", "Comfortable", "Large"])
+    reduce_motion: bool = opt(False, "Reduce motion", "Disables pulsing indicators and toast animations.")
+    show_artwork: bool = opt(True, "Show artwork banner on the dashboard")
+
+
+@dataclass
+class NotificationsConfig:
+    toasts: bool = opt(True, "In-app toast messages", "Short pop-ups for errors, reminders and session events.")
+    tray_icon: bool = opt(True, "Show tray icon", "Start / pause / stop from the Windows notification area.")
+    minimize_to_tray: bool = opt(False, "Minimise to tray")
+    desktop_notifications: bool = opt(True, "Desktop notifications", "Tray balloons for errors, disconnects and reminders.")
+    notify_every_catches: int = opt(0, "Notify every N catches", "0 = off.", min=0, max=1000)
+    sound_on_error: bool = opt(True, "Sound on errors and disconnects")
+
+
+@dataclass
 class AppSettings:
     active_profile: str = "Default"
     risk_acknowledged: bool = False
@@ -265,6 +284,8 @@ class AppSettings:
     input: InputConfig = field(default_factory=InputConfig)
     startup: StartupConfig = field(default_factory=StartupConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    appearance: AppearanceConfig = field(default_factory=AppearanceConfig)
+    notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     window_geometry: str = ""
     overlay_enabled: bool = False
 

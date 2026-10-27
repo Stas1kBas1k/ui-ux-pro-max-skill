@@ -43,6 +43,7 @@ class SessionStats:
     casts: int = 0
     perfect_casts: int = 0
     durations: list[float] = field(default_factory=list)
+    history: list[tuple[str, float]] = field(default_factory=list)  # (outcome, duration) per cycle
 
     @property
     def cycles(self) -> int:
