@@ -93,6 +93,9 @@ class DetectionConfig:
     fish_tolerance: int = opt(22, "Fish colour tolerance", "Per-channel tolerance (0-255).", min=0, max=128)
     bar_color: str = opt("#F1F1F1", "Catch bar colour", "Colour of the player-controlled catch bar.", kind="color")
     bar_tolerance: int = opt(24, "Catch bar tolerance", min=0, max=128)
+    bar_color2: str = opt("#848587", "Catch bar inner colour",
+                          "The grey the see-through bar shows over the dark track. Also counted as bar.", kind="color")
+    bar_tolerance2: int = opt(12, "Inner colour tolerance", "0 turns the second colour off.", min=0, max=64)
     bar_column_fill: float = opt(0.35, "Bar column fill", "Fraction of a column that must match to count as bar.", min=0.05, max=1.0, step=0.05, decimals=2)
     bar_min_width: float = opt(0.04, "Minimum bar width", "Relative to the reel region width.", min=0.01, max=0.9, step=0.01, decimals=2)
     progress_color: str = opt("#FFFFFF", "Progress fill colour", kind="color")
@@ -182,6 +185,7 @@ class MinigameConfig:
     action: str = opt("click", "Minigame input", "'click', or a key name if the game uses a key.", kind="key")
     neutral_after_click: bool = opt(True, "Move cursor back after clicking an option")
     # Lullaby
+    lullaby_mode: str = opt("Keep current", "Lullaby mode", "Switched with Q until this mode's name shows on screen.")
     mode_key: str = opt("q", "Mode key (Lullaby)", kind="key")
     mode_presses: int = opt(0, "Mode key presses per catch", "How many times to press the mode key when a minigame "
                             "starts, to pick a Lullaby mode.", min=0, max=6)
@@ -295,6 +299,9 @@ class InputConfig:
     key_hold_ms: int = opt(35, "Key hold", min=1, max=500, suffix=" ms")
     mouse_nudge: bool = opt(True, "Nudge cursor before clicks", "Roblox sometimes ignores clicks without a preceding mouse move.")
     min_switch_interval_ms: int = opt(0, "Min reel input switch interval", "0 = switch every frame if needed.", min=0, max=200, suffix=" ms")
+    method: str = opt("Scan codes (recommended)", "Input method",
+                      "Scan codes reach Roblox like a real keyboard. Use pynput only if scan codes do not work for you.",
+                      choices=["Scan codes (recommended)", "pynput"])
 
 
 @dataclass
@@ -409,7 +416,65 @@ class Routine:
     verify: bool = False               # preset built from guides - check it in game
 
 
-WATCHER_KINDS = ["hunt", "weather", "event", "rod", "custom"]
+WATCHER_KINDS = ["hunt", "weather", "event", "rod", "custom", "world", "power"]
+
+
+@dataclass
+class SovereignAddon:
+    enabled: bool = False
+    recharge_below: int = 90
+    charge_up_to: int = 99
+    relic: str = "Enchant Relic"
+    power_region: Region = field(default_factory=lambda: Region(0.40, 0.86, 0.20, 0.05))
+
+
+@dataclass
+class TotemAddon:
+    enabled: bool = False
+    weather: str = "None"      # weather to hold
+    surge: str = "None"        # Shiny | Sparkling | Mutation
+    time: str = "Auto"         # Auto | Day | Night
+    world_region: Region = field(default_factory=lambda: Region(0.0, 0.0, 0.32, 0.12))
+    cooldown_min: float = 5.0
+
+
+@dataclass
+class AppraiseAddon:
+    mode: str = "Appraiser NPC"   # or "Gamepass"
+    traits: list[str] = field(default_factory=lambda: ["Shiny", "Sparkling", "Mythical"])
+    max_tries: int = 25
+
+
+@dataclass
+class TimedItemAddon:
+    enabled: bool = False
+    item: str = ""
+    every_min: float = 15.0
+
+
+@dataclass
+class AddonsConfig:
+    sovereign: SovereignAddon = field(default_factory=SovereignAddon)
+    totem: TotemAddon = field(default_factory=TotemAddon)
+    appraise: AppraiseAddon = field(default_factory=AppraiseAddon)
+    potion: TimedItemAddon = field(default_factory=lambda: TimedItemAddon(item="Luck Potion", every_min=15.0))
+    astral: TimedItemAddon = field(default_factory=lambda: TimedItemAddon(item="Astral Activator", every_min=30.0))
+
+
+@dataclass
+class HuntsConfig:
+    watched: list[str] = field(default_factory=list)
+    custom: list[str] = field(default_factory=list)     # hunts typed in that are not in the catalogue
+    region: Region = field(default_factory=lambda: Region(0.2, 0.0, 0.6, 0.16))
+    discord: bool = True
+    toast: bool = True
+    pause: bool = False
+
+
+@dataclass
+class RodDetectConfig:
+    enabled: bool = False
+    region: Region = field(default_factory=lambda: Region(0.3, 0.86, 0.4, 0.08))
 
 
 @dataclass
@@ -442,6 +507,9 @@ class AppSettings:
     loadout: LoadoutConfig = field(default_factory=LoadoutConfig)
     routines: list[Routine] = field(default_factory=list)
     watchers: list[Watcher] = field(default_factory=list)
+    addons: AddonsConfig = field(default_factory=AddonsConfig)
+    hunts: HuntsConfig = field(default_factory=HuntsConfig)
+    rod_detect: RodDetectConfig = field(default_factory=RodDetectConfig)
     window_geometry: str = ""
     setup_dismissed: bool = False
     setup_progress: dict[str, bool] = field(default_factory=dict)  # milestones seen in the live game

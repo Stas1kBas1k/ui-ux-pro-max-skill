@@ -49,6 +49,7 @@ class ReelResult:
     bar_right: float = 0.0
     fish_confidence: float = 0.0
     bar_confidence: float = 0.0
+    bar_found: bool = False       # False with ui_present = fish seen on the track but the bar was not
 
     @property
     def present(self) -> bool:
@@ -89,6 +90,8 @@ def detect_reel(crop: np.ndarray | None, cfg: DetectionConfig) -> ReelResult:
             res.fish_confidence = _clamp(float(weights.max()) / 0.55) * _clamp(width / 2.0)
 
     bar = color_mask(crop, cfg.bar_color, cfg.bar_tolerance)
+    if getattr(cfg, "bar_tolerance2", 0) > 0:
+        bar = cv2.bitwise_or(bar, color_mask(crop, cfg.bar_color2, cfg.bar_tolerance2))
     bar_fill = bar.sum(axis=0, dtype=np.float32) / (255.0 * h)
     bar_cols = bar_fill >= cfg.bar_column_fill
     if res.fish_found:
@@ -105,6 +108,12 @@ def detect_reel(crop: np.ndarray | None, cfg: DetectionConfig) -> ReelResult:
             res.bar_left = best[0] / w
             res.bar_right = best[1] / w
             res.bar_confidence = _clamp(coverage / 0.75)
+            res.bar_found = True
+    if not res.ui_present and res.fish_found and res.fish_confidence >= 0.5 and \
+            float(bar_fill.sum()) >= 0.03 * w:
+        # Fish on the track and bar-coloured pixels nearby, but no clean bar run (blurred,
+        # half-transparent or recoloured bar). Still a minigame: the FSM steers on the fish alone.
+        res.ui_present = True
     return res
 
 

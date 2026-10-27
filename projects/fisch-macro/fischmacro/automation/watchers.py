@@ -39,7 +39,9 @@ def crop_region(image, region: Region):
 class WatcherService:
     def __init__(self, get_watchers: Callable[[], list[Watcher]], get_image: Callable[[], object],
                  on_match: Callable[[Watcher, list[str], str, object], None],
-                 on_rod: Callable[[str], None] | None = None, ocr: OcrEngine | None = None):
+                 on_rod: Callable[[str], None] | None = None, ocr: OcrEngine | None = None,
+                 on_text: Callable[[Watcher, str, float], None] | None = None):
+        self.on_text = on_text  # readouts (world / power): every reading, no keyword matching
         self.get_watchers = get_watchers
         self.get_image = get_image
         self.on_match = on_match
@@ -59,6 +61,11 @@ class WatcherService:
         ocr = self.ocr or OcrEngine.shared()
         text = ocr.text(crop)
         st.text = text
+        if w.kind in ("world", "power"):
+            if self.on_text:
+                self.on_text(w, text, now)
+            st.matches = [text] if text else []
+            return []
         if w.kind == "rod":
             name = self._rod_name(text)
             if name and not (self.last_rod and fuzzy_contains(name, self.last_rod) and fuzzy_contains(self.last_rod, name)):

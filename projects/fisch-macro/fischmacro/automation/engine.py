@@ -19,11 +19,13 @@ from fischmacro.automation.fsm import FishingStateMachine, State
 from fischmacro.automation.reel_controller import ReelDebug
 from fischmacro.diagnostics.stats import SessionStats, StatsStore
 from fischmacro.input.controller import InputController, create_backend
-from fischmacro.profiles.schema import AppSettings, Profile
+from fischmacro.profiles.schema import AppSettings, Profile, Routine, Watcher
 from fischmacro.automation.minigame_solvers import MinigameSolver
 from fischmacro.automation.modules import ModuleHost
 from fischmacro.automation.reel_controller import ReelController
 from fischmacro.automation.routines import RoutineContext, RoutineRunner, RoutineScheduler
+from fischmacro.automation.addons import AddonsService
+from fischmacro.game_data import LULLABY_MODES
 from fischmacro.automation.watchers import WatcherService
 from fischmacro.diagnostics.notify import DiscordNotifier
 from fischmacro.vision.autocal import AutoCalibrator, AutoCalResult, apply_result
@@ -111,8 +113,10 @@ class AutomationEngine:
         self.routine_running = ""
         self.notifier = DiscordNotifier(lambda: self.settings.notifications)
         self._latest_image = None
-        self.watchers = WatcherService(lambda: self.settings.watchers, lambda: self._latest_image,
-                                       self._on_watch_match, self._on_rod_detected)
+        self.addons = AddonsService(self.settings.addons)
+        self._lullaby_mode_set = ""
+        self.watchers = WatcherService(self.active_watchers, lambda: self._latest_image,
+                                       self._on_watch_match, self._on_rod_detected, on_text=self._on_watch_text)
         self.on_rod_detected = None    # callback(rod_name) - the UI decides which profile to use
         self.detected_rod = ""
         self._pending_profile: Profile | None = None
@@ -140,7 +144,7 @@ class AutomationEngine:
         if self._inputs_override is not None:
             return self._inputs_override
         i = self.settings.input
-        backend = create_backend(self.sim_game)
+        backend = create_backend(self.sim_game, prefer_scancodes=not i.method.startswith("pynput"))
         return InputController(backend, i.click_hold_ms, i.key_hold_ms, i.mouse_nudge)
 
     @property
@@ -215,11 +219,29 @@ class AutomationEngine:
             self._snap.last_error = ""
             self.vision.reset_background()
             self.scheduler.reset(time.monotonic(), 0)
+            self.addons.reset(time.monotonic())
+            self._lullaby_mode_set = ""
             self.fsm.start(time.monotonic())
             self._status = Status.RUNNING
+        if not self.simulated and self.source is not None:
+            self._focus_game()
         self._event("info", f"Automation started with profile '{self.profile.name}'"
                     + (" [SIMULATION - no real input]" if self.simulated else ""))
         return True
+
+    def _focus_game(self) -> None:
+        """Pressing Start in this window leaves Roblox in the background; bring it forward once."""
+        try:
+            win = self.source.locate()
+            if not win.found:
+                self._event("warning", f"Roblox window '{self.settings.capture.window_title}' not found - open the game first")
+                return
+            if not win.focused:
+                from fischmacro.vision.win32 import focus_window
+                if not focus_window(win.handle):
+                    self._event("info", "Click the Roblox window once - fishing starts when it is focused")
+        except Exception:  # noqa: BLE001 - focusing is a convenience only
+            log.debug("Could not focus the game", exc_info=True)
 
     def stop_automation(self, reason: str = "stopped by user") -> None:
         # Release first, without waiting for the processing thread.
@@ -529,6 +551,34 @@ class AutomationEngine:
             self.pause()
             self._event("warning", f"Paused because {msg}")
 
+    def active_watchers(self) -> list[Watcher]:
+        """Screen readers the current settings need: hunts, world readout, rod power, rod name."""
+        st, out = self.settings, [w for w in self.settings.watchers if w.enabled]
+        h = st.hunts
+        names = list(dict.fromkeys(h.watched + h.custom))
+        if names:
+            out.append(Watcher("Hunts", enabled=True, kind="hunt", region=h.region, keywords="|".join(names),
+                               interval_s=3, cooldown_min=10, notify_discord=h.discord, toast=h.toast,
+                               pause_automation=h.pause))
+        a = st.addons
+        self.addons.cfg = a
+        if a.totem.enabled:
+            out.append(Watcher("World", enabled=True, kind="world", region=a.totem.world_region, interval_s=5,
+                               notify_discord=False, toast=False))
+        if a.sovereign.enabled:
+            out.append(Watcher("Sovereign power", enabled=True, kind="power", region=a.sovereign.power_region,
+                               interval_s=4, notify_discord=False, toast=False))
+        if st.rod_detect.enabled:
+            out.append(Watcher("Rod name", enabled=True, kind="rod", region=st.rod_detect.region, interval_s=8,
+                               notify_discord=False, toast=False))
+        return out
+
+    def _on_watch_text(self, w, text: str, now: float) -> None:
+        if w.kind == "world":
+            self.addons.on_world_text(text, now)
+        elif w.kind == "power":
+            self.addons.on_power_text(text, now)
+
     def _on_rod_detected(self, name: str) -> None:
         self.detected_rod = name
         self._event("rod", f"Rod detected: {name}")
@@ -567,10 +617,76 @@ class AutomationEngine:
             self.scheduler.mark_run(r, time.monotonic(), self.session.catches)
             if not ok or self._abort.is_set():
                 return
+        self.addons.cfg = self.settings.addons
+        for reason, r in self.addons.plan(time.monotonic()):
+            self._event("info", f"Add-on: {reason}")
+            self.routine_running = r.name
+            try:
+                ok = self._run_addon(r)
+            finally:
+                self.routine_running = ""
+            self.addons.mark(r, time.monotonic())
+            if not ok or self._abort.is_set():
+                return
+        self._ensure_lullaby_mode()
 
-    def run_routine_now(self, name: str, countdown: float = 3.0) -> str:
+    def _run_addon(self, r: Routine) -> bool:
+        runner = self._routine_runner()
+        if r.note != "sovereign":
+            return runner.run(r)
+        # Sovereign: use relics until the power readout reaches the target (max 10 relics).
+        s = self.settings.addons.sovereign
+        for _ in range(10):
+            seen = self.addons.world.power_updated
+            if not runner.run(r):
+                return False
+            deadline = time.monotonic() + 8.0
+            while self.addons.world.power_updated <= seen and time.monotonic() < deadline:
+                if self._abort.wait(0.3):
+                    return False
+            p = self.addons.world.power
+            if p is None or self.addons.world.power_updated <= seen:
+                self._event("warning", "Sovereign: no power reading after the relic - check the power region")
+                return True
+            if p >= s.charge_up_to:
+                self._event("info", f"Sovereign recharged to {p}%")
+                return True
+        return True
+
+    def _ensure_lullaby_mode(self) -> None:
+        """Lullaby rod: press the mode key until the chosen mode's name is on screen (once per session)."""
+        m = self.profile.minigame
+        want = m.lullaby_mode
+        if m.kind != "lullaby" or not want or want == "Keep current" or self._lullaby_mode_set == want:
+            return
+        from fischmacro.vision.ocr import find_keywords
+        runner = self._routine_runner()
+        try:
+            for i in range(len(LULLABY_MODES) + 1):
+                boxes, _ = runner._ocr()
+                if find_keywords(" ".join(b.text for b in boxes), [want]):
+                    self._lullaby_mode_set = want
+                    self._event("info", f"Lullaby mode: {want}" + (f" ({i} presses)" if i else ""))
+                    return
+                if not self.inputs.press_key(m.mode_key or "q") or self._abort.wait(0.8):
+                    return
+        except Exception:  # noqa: BLE001
+            log.exception("Lullaby mode switch failed")
+        self._lullaby_mode_set = want  # do not keep pressing every catch
+        self._event("warning", f"Could not confirm Lullaby mode '{want}' on screen - left as is")
+
+    def run_appraise(self, countdown: float = 3.0) -> str:
+        """Auto Appraise: re-roll the held fish until it has one of the chosen traits."""
+        if self._status in (Status.RUNNING, Status.PAUSED):
+            return "Stop fishing first - appraising needs the fish in your hand"
+        a = self.settings.addons.appraise
+        if not a.traits:
+            return "Pick at least one trait first"
+        return self.run_routine_now("Auto Appraise", countdown, routine=self.addons.appraise_routine())
+
+    def run_routine_now(self, name: str, countdown: float = 3.0, routine: Routine | None = None) -> str:
         """Queue (while fishing) or run (while stopped) a routine by name. Returns a status message."""
-        routine = next((r for r in self.settings.routines if r.name == name), None)
+        routine = routine or next((r for r in self.settings.routines if r.name == name), None)
         if routine is None:
             return f"No routine named '{name}'"
         if self._status in (Status.RUNNING, Status.PAUSED):

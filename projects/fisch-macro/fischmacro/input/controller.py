@@ -217,11 +217,17 @@ class InputController:
             log.error("Input release failed: %s", exc)
 
 
-def create_backend(simulated_game=None) -> InputBackend:
+def create_backend(simulated_game=None, prefer_scancodes: bool = True) -> InputBackend:
     """Real input for live play, the simulator for test mode, recording as last resort."""
     if simulated_game is not None:
         from fischmacro.simulation.game import SimulatedInputBackend
         return SimulatedInputBackend(simulated_game)
+    if prefer_scancodes:
+        try:
+            from fischmacro.input.sendinput import SendInputBackend
+            return SendInputBackend()
+        except Exception as exc:  # noqa: BLE001 - not Windows: fall through to pynput
+            log.debug("Scan-code input unavailable: %s", exc)
     try:
         return PynputBackend()
     except Exception as exc:  # noqa: BLE001

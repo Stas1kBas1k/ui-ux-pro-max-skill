@@ -377,4 +377,6 @@ def apply_result(profile, res: AutoCalResult, regions: bool = True) -> list[str]
         if value and getattr(d, attr) != value:
             setattr(d, attr, value)
             changed.append(attr.replace("_", " "))
+    if res.bar_color:
+        d.bar_tolerance2 = 0  # the sampled colour is exact; the generic grey could match this skin's track
     return changed

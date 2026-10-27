@@ -11,7 +11,7 @@ def obs(*, reel=None, progress=None, shake=(), cast=None, disconnect=False, popu
                     window_found=True, window_focused=focused)
     if reel is not None:
         fish, left, right = reel
-        o.reel = d.ReelResult(True, fish is not None, fish or 0.0, left, right, 1.0 if fish is not None else 0.0, 1.0)
+        o.reel = d.ReelResult(True, fish is not None, fish or 0.0, left, right, 1.0 if fish is not None else 0.0, 1.0, True)
     if progress is not None:
         o.progress = d.FillResult(True, progress, 1.0)
     o.shake = d.ShakeResult([d.Target(x, y, 0.05, 0.05, 0.95) for x, y in shake])

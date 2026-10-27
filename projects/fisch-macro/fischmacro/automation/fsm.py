@@ -84,6 +84,9 @@ class FsmContext:
     reason: str = ""
     attempts: int = 0
     jitter: float | None = None  # random timing scale for this cast
+    bar_center: float | None = None  # last clearly seen catch bar (reeling)
+    bar_seen: float = 0.0
+    fallback_warned: bool = False
 
 
 class FishingStateMachine:
@@ -350,6 +353,8 @@ class FishingStateMachine:
             self.cycle.catch_popup = True
         if obs.reel.ui_present:
             c.last_reel_ui = now
+            if obs.reel.bar_found and obs.reel.bar_confidence >= cfg.min_confidence:
+                c.bar_center, c.bar_seen = obs.reel.bar_center, now
             if obs.progress.present and self._confident(obs.progress.confidence):
                 self.cycle.last_progress = obs.progress.fill
                 self.cycle.max_progress = max(self.cycle.max_progress, obs.progress.fill)
@@ -365,6 +370,20 @@ class FishingStateMachine:
                 self.input.mouse_down()
             else:
                 self.input.mouse_up()
+        elif steer and obs.reel.ui_present and obs.reel.fish_found and \
+                obs.reel.fish_confidence >= cfg.min_confidence:
+            # Fish is clear but the bar is not (see-through or recoloured bar): steer on the fish
+            # against the last bar position we saw, like a simple pixel macro would.
+            c.last_fish = now
+            ref = c.bar_center if (c.bar_center is not None and now - c.bar_seen < 0.6) else 0.5
+            hold = obs.reel.fish_x > ref
+            if hold:
+                self.input.mouse_down()
+            else:
+                self.input.mouse_up()
+            if not c.fallback_warned:
+                c.fallback_warned = True
+                self.emit("warning", "Catch bar not clear - following the fish only. Run Auto-calibrate for smoother tracking")
         else:
             # Unsure where the fish is: do not keep holding blindly.
             if self.input.is_held():

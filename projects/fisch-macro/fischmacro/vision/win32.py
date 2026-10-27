@@ -85,3 +85,22 @@ def find_window(title: str) -> WindowInfo:
         minimized=bool(user32.IsIconic(hwnd)),
         title=title, handle=int(hwnd),
     )
+
+
+def focus_window(handle: int) -> bool:
+    """Bring a window to the front (what clicking its title bar does). Returns True if it is focused."""
+    if not IS_WINDOWS or not handle:
+        return False
+    import ctypes
+    user32 = ctypes.windll.user32
+    try:
+        if user32.IsIconic(handle):
+            user32.ShowWindow(handle, 9)  # SW_RESTORE
+        # Windows only lets the foreground app hand focus over; a dummy Alt tap lifts that lock.
+        user32.keybd_event(0x12, 0, 0, 0)
+        user32.keybd_event(0x12, 0, 2, 0)
+        user32.SetForegroundWindow(handle)
+        return user32.GetForegroundWindow() == handle
+    except Exception as exc:  # noqa: BLE001
+        log.debug("focus_window failed: %s", exc)
+        return False

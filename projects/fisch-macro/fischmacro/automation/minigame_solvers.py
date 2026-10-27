@@ -11,6 +11,8 @@ from collections import deque
 from fischmacro.profiles.schema import MinigameConfig
 from fischmacro.vision.engine import Observation
 
+LULLABY_GRACE = 1.2  # seconds after the reel starts during which Lullaby clicks count for nothing
+
 
 class MinigameSolver:
     def __init__(self, cfg: MinigameConfig, fsm):
@@ -25,6 +27,8 @@ class MinigameSolver:
         self.done_signature: int | None = None
         self.recent: list[tuple[float, float, float]] = []
         self.actions = 0
+        self.t_start: float | None = None
+        self.fired_segment: tuple[float, float] | None = None  # Lullaby: section already clicked this pass
 
     # -- input helpers
     def _act(self, pos: tuple[float, float] | None = None) -> None:
@@ -54,6 +58,7 @@ class MinigameSolver:
         c = self.cfg
         if not self.started:
             self.started = True
+            self.t_start = now
             for _ in range(c.mode_presses if c.kind == "lullaby" else 0):
                 self.fsm.input.press_key(c.mode_key)
         if c.kind == "lullaby":
@@ -71,6 +76,14 @@ class MinigameSolver:
         self.pointer_hist.append((now, t.pointer))
         if len(self.pointer_hist) < 2 or not t.segments:
             return
+        # Clicks in the first 1.2 s of the reel give nothing in game: wait them out.
+        if self.t_start is not None and now - self.t_start < LULLABY_GRACE:
+            return
+        if self.fired_segment is not None:
+            a, b = self.fired_segment
+            if a - 0.02 <= t.pointer <= b + 0.02:
+                return  # a second click in the same section does nothing - wait for the next one
+            self.fired_segment = None
         (t0, x0), (t1, x1) = self.pointer_hist[-2], self.pointer_hist[-1]
         v = (x1 - x0) / max(1e-3, t1 - t0)
         lead = self.cfg.lead_ms / 1000.0
@@ -82,6 +95,7 @@ class MinigameSolver:
             margin = min(0.01, (b - a) * 0.15)
             if a + margin <= predicted <= b - margin and a - 0.02 <= t.pointer <= b + 0.02:
                 self.last_fire = now
+                self.fired_segment = (a, b)
                 self._act()
                 return
 
