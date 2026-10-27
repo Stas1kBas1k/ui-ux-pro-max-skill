@@ -28,7 +28,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install --no-deps rapidocr-onnxruntime==1.2.3
       - name: Run tests
         run: python -m pytest -q
       - name: Build executable
@@ -41,6 +44,12 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "FischMacro.exe exited with $($p.ExitCode)" }
           Get-Content "$env:FISCHMACRO_HOME\logs\fischmacro.log" | Select-Object -Last 15
           if (-not (Select-String -Path "$env:FISCHMACRO_HOME\logs\fischmacro.log" -Pattern "Fisch Macro started" -Quiet)) { throw "app did not start" }
+      - name: Self-test executable (OCR + vision inside the bundle)
+        shell: pwsh
+        run: |
+          $env:FISCHMACRO_HOME = "$env:RUNNER_TEMP\fischmacro-selftest"
+          $p = Start-Process -FilePath "dist\FischMacro\FischMacro.exe" -ArgumentList "--self-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "self-test failed with $($p.ExitCode)" }
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:

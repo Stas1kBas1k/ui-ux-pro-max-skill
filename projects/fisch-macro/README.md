@@ -12,6 +12,8 @@ feedback controller.
 | ![Live preview with detections and the reel tracker](docs/screenshots/vision.png) | ![Dragging regions over a frozen screenshot](docs/screenshots/calibration.png) |
 | **Setup checklist** | **Themes** (Deep Ocean, Arctic Light, ...) |
 | ![First-run checklist](docs/screenshots/checklist.png) | ![Theme gallery](docs/screenshots/settings-themes.png) |
+| **Routines** (potions, totems, recharge, appraise) | **Alerts & Watchers** (hunts, weather, Discord) |
+| ![Routine editor](docs/screenshots/routines.png) | ![Watchers and Discord](docs/screenshots/alerts.png) |
 
 > **Account risk.** Third-party automation can break Roblox's Terms of Use or Fisch's rules and may get your
 > account restricted. Fisch Macro does **not** read game memory, inject code or bypass anti-cheat. It only
@@ -22,6 +24,7 @@ feedback controller.
 ## Contents
 
 - [Features](#features)
+- [Rod minigames, routines and alerts](#rod-minigames-routines-and-alerts)
 - [Install and launch](#install-and-launch)
 - [First-run setup](#first-run-setup)
 - [Testing in Roblox Fisch](#testing-in-roblox-fisch)
@@ -33,6 +36,17 @@ feedback controller.
 - [Privacy and safety](#privacy-and-safety)
 
 ## Features
+
+**Auto-calibration (no manual setup needed)**
+- **Auto-calibrate** (*Computer Vision* page, or the dashboard checklist): fish once and the app finds the reel
+  bar, progress bar and cast power bar by itself from on-screen motion, then samples the bar, fish and progress
+  colours.
+- **Auto-adapt** (on by default): when a rod or skin change makes the minigame unrecognisable, the app finds and
+  re-samples it during that same minigame, checks the result with the real detectors before using it, and
+  saves it. In the simulator, 39 of 40 random rod/skin layouts calibrated fully automatically, and a profile
+  with the wrong colours caught 2 of 2 fish after adapting (0 of 2 without it).
+- Manual calibration (F10) is still there for fine control: drag rectangles, pick colours with a magnifier,
+  capture templates.
 
 **Computer vision (local, configurable)**
 - Calibrated screen regions, stored in coordinates relative to the Roblox client area, so they survive window
@@ -55,13 +69,22 @@ feedback controller.
 **Automation**
 - Finite-state machine: `IDLE → CASTING → WAITING_FOR_BITE → SHAKE → REELING → CATCH_CONFIRMED → CASTING`, plus
   `RECOVERY` and `ERROR`. Transitions are validated and every state has timeouts.
-- **Casting**: either "perfect" (release when the power bar is full, or just after its peak) or "timed".
-  Falls back to the timed hold when the power bar is not seen.
+- **Casting**: "perfect" (release when the power bar is full, or just after its peak), "timed", or "normal"
+  (a short casual cast right after each catch). Timing has a little random jitter so it isn't machine-regular.
+  Perfect mode falls back to the timed hold when the power bar is not seen.
 - **Shake**: in click mode, each target must be seen in N frames in a row and has a re-click cooldown. In
   navigation mode, Roblox UI-navigation keys are used instead.
 - **Reel solver**: PD controller with velocity feed-forward and look-ahead prediction. Gains are normalised by
   bar width. Sigma-delta conversion turns the controller output into hold/release decisions, with edge rules
   and safety limits (maximum continuous hold, release on low confidence or lost fish).
+- **Precision tracking** (for tryhard and low-resilience rods): learns the bar physics while you reel (push,
+  fall and drag), then every frame simulates the next 0.4 s for all 16 hold/release patterns and picks the one
+  that keeps the fish closest to the bar centre. That's model-predictive control. In the simulator:
+  - lopsided rod with a small bar: 14/20 catches vs 2/17 with standard tracking;
+  - low resilience: 19/20 vs 17/20;
+  - normal rods: no regression.
+- **Faster reaction**: the reel minigame is captured at its own rate (90 FPS by default) and only the regions it
+  needs are grabbed.
 - **Hover-duty auto-tune** (on by default): learns each rod's "hover duty", the hold fraction that keeps the bar
   still, from how the bar actually responds while you reel. It regresses bar acceleration on hold state, with
   forgetting so it adapts to the current rod. You can save the learned value to the profile from the Computer
@@ -87,7 +110,8 @@ feedback controller.
 - Auto reconnect (*experimental*).
 
 **App**
-- Pages: Dashboard, Automation, Computer Vision, Profiles, Hotkeys, Settings, Logs & Statistics.
+- Pages: Dashboard, Automation, Computer Vision, Profiles, Routines, Alerts & Watchers, Hotkeys, Settings,
+  Logs & Statistics.
 - A **"Get ready for Fisch" checklist** on the dashboard tracks real setup progress: risk notice, game window
   found, reel calibrated, colours sampled, minigame seen in the live preview, first live catch. Each step has a
   button that jumps to the right place. Hide it once you're set up; it can be shown again from Settings.
@@ -100,6 +124,63 @@ feedback controller.
   milestones.
 - A **simulation mode** that runs the whole loop against a built-in model of the game, with no real input.
 
+## Rod minigames, routines and alerts
+
+### Rod-specific minigames (*Automation → Rod minigame*)
+
+The catch bar keeps following the fish while these run. Switch off *Keep following the fish* to play only
+the rod minigame.
+
+| Rod | What the app does | Status |
+|---|---|---|
+| **Lullaby** | Clicks when the swinging pendulum is over a lit section. Presses Q a set number of times per catch to pick a mode (Strengthening / Fortuitous / Serene Hymn). | Solver hits 100% in the simulator when *Input lead* matches the input delay. Tune *Input lead* in game. |
+| **Stellarwave Melody** | Finds the star sign you must match and clicks the matching one on the wheel. | Shape matching worked on every simulated wheel. Calibrate the two regions and sign colour in game. |
+| **Halibut Harpoon** | Clicks marked targets. | Experimental: what the player must click needs confirming. |
+| **Pinion's Aria, Migurod, other tryhard rods** | Precision tracking with a larger safety margin. | Same tracker as above. |
+
+Presets apply automatically when a rod is detected, or from *Automation → Rod & equipment → Apply rod preset*.
+
+### Routines (*Routines* page)
+
+Step lists for items, run only between catches. Steps can be:
+- use item (by hotbar slot from your loadout, or by typing its name into the inventory search),
+- press key, type text, click a point,
+- click a button by its text (OCR),
+- wait, or wait for text.
+
+*Repeat until text* keeps going until a word appears, e.g. a mutation when appraising. Triggers can be every
+N minutes, every N catches, a watcher match, or manual (*Run now*). All presets start **disabled** and are
+marked **verify in game**, because the exact Fisch buttons need checking:
+- luck potion,
+- totem,
+- Astral Activator,
+- Sovereign recharge with an Enchant Relic (gamepass),
+- auto appraise (gamepass),
+- appraiser NPC.
+
+Set up the **Loadout** once: which item is in which hotbar slot, the inventory key, and where the search box
+and first result are. Use the *Pick on screen* buttons.
+
+### Alerts & Watchers (*Alerts & Watchers* page)
+
+Watchers read a screen region with offline OCR every few seconds. Presets:
+- Hunts (Megalodon, Great White, Great Hammerhead, Whale Shark, ...),
+- Weather,
+- Server events (Lucky Pool, Nuke, Lunar Eclipse, ...),
+- Rod charge,
+- Rod name.
+
+On a match a watcher can:
+- show a toast or tray notification,
+- send a **Discord** message (paste a webhook URL; text only unless you enable screenshots),
+- trigger routines (e.g. pop a potion when an event starts),
+- pause fishing, so you can come back and take part in a hunt.
+
+**Automatic rod and skin profiles.** The *Rod name* watcher reads the equipped rod. A new rod gets its own
+profile, with the matching rod preset. A known rod switches back to its profile. When a new skin on an
+already-calibrated rod changes the minigame colours, the adapted colours are saved as a separate *"(skin N)"*
+profile, so your original profile stays intact. Switches only happen between catches.
+
 ### Technology choices
 
 | Concern | Choice | Why |
@@ -109,6 +190,7 @@ feedback controller.
 | Capture | MSS | Small, fast GDI capture of a sub-rectangle; no admin rights |
 | Input + global hotkeys | pynput | Standard `SendInput` and low-level keyboard hook; no drivers |
 | Storage | JSON (settings, profiles), SQLite (statistics) | Human-editable config, robust stats |
+| Text recognition | RapidOCR (ONNX Runtime) | Offline OCR bundled with the app; reads hunts, weather and rod names |
 | Packaging | PyInstaller (one-folder) | Standalone `.exe`, quick start-up |
 
 ## Install and launch
@@ -126,6 +208,7 @@ cd projects\fisch-macro
 py -3.12 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+pip install --no-deps rapidocr-onnxruntime==1.2.3   # OCR (no-deps: keeps the headless OpenCV build)
 python run.py               # normal mode
 python run.py --simulation  # built-in simulated game, no real input
 ```
@@ -138,7 +221,8 @@ packaging\build_windows.bat
 ```
 
 This creates a virtualenv, installs dependencies, runs the tests, builds `dist\FischMacro\FischMacro.exe` with
-PyInstaller and smoke-tests it. The bundle is about 250–370 MB, mostly OpenCV and Qt.
+PyInstaller, smoke-tests it, and runs `FischMacro.exe --self-test`, which checks that OCR and the vision engine
+work inside the bundle. The bundle is about 300–430 MB, mostly OpenCV, Qt and the OCR runtime.
 
 Settings, profiles, logs and statistics are stored in `%APPDATA%\FischMacro`. They persist between launches
 and between versions.
@@ -152,8 +236,12 @@ and between versions.
 3. **Prepare Roblox.** Play in **windowed or borderless** mode. Equip your rod. Leave the UI scale at its
    default for your first calibration.
 4. **Check the window title.** *Settings → Screen capture → Game window title* should be `Roblox`.
-5. **Calibrate** (*Computer Vision → Calibrate regions* or **F10**). A frozen screenshot appears over the game.
-   For each region, select it in the panel (or press 1–7) and drag a rectangle:
+5. **Auto-calibrate** (*Computer Vision → Auto-calibrate*, or the dashboard checklist). Then cast and reel one
+   fish manually; the app finds the bars and colours by itself and saves them. If that doesn't work for your
+   setup, calibrate manually instead.
+
+   **Manual calibration** (*Computer Vision → Manual calibration* or **F10**). A frozen screenshot appears over
+   the game. For each region, select it in the panel (or press 1–9) and drag a rectangle:
    - **Reel minigame bar**: start a minigame, then press F10 while it is visible. Draw tightly around the
      horizontal bar.
    - **Catch progress bar**: the progress bar under it.
@@ -191,6 +279,10 @@ and between versions.
 | Bar is too slow to follow a fast fish | raise **Kp** or **feed-forward** |
 | Bar overshoots and oscillates | raise **Kd**, lower **Kp** |
 | Jittery input on a noisy detection | raise **Velocity smoothing** |
+| Tiny bar / fish escapes on tryhard rods | switch **Tracking mode** to **precision** |
+
+**Lullaby**: if clicks land just after the lit section, raise *Input lead* (ms); if they land early, lower it.
+Use *Mode key presses per catch* to choose the mode.
 
 **Shake**: if buttons are missed, widen *Shake tolerance* or use a template. If clicks land on scenery, lower the
 tolerance, raise *Frames before clicking*, or use navigation mode.
@@ -208,7 +300,7 @@ low (typically a few ms per frame).
 | F9 | Toggle debug overlay |
 | F10 | Open / close calibration |
 | F11 | Diagnostic snapshot |
-| Ctrl+1…7 | Switch pages (while the app is focused) |
+| Ctrl+1…9 | Switch pages (while the app is focused) |
 
 Change them in *Hotkeys*: click a shortcut, then press the new key. The page warns about duplicates and about
 keys the automation itself presses in-game, such as the rod slot key. Holding a key fires its action only
@@ -223,6 +315,8 @@ once.
 | Hotkeys do nothing in game | The status bar must say *Global hotkeys on*. Security software can block keyboard hooks. Run Roblox and the app at the same privilege level. |
 | Clicks do not register in Roblox | Keep *Nudge cursor before clicks* on. Raise *Click hold* to 40–60 ms. |
 | Regions are off after changing resolution or UI scale | Re-calibrate. Regions are relative, but Roblox's UI does not scale linearly with every setting. |
+| Watchers never match | Check *Alerts & Watchers*: the live line shows what OCR read. Re-pick the region so it tightly covers the text. |
+| Rod profile switches to the wrong rod | Edit *Rod name* in each profile to the exact name OCR reads, or turn off *Automatic rod profiles*. |
 | Many "unconfirmed" outcomes | Calibrate the progress bar region and colour, or add a catch-popup template. |
 | Too many recoveries / error stop | Save an F11 snapshot and compare *annotated.png* with the game. Usually a colour or region needs adjusting. |
 | Something else | *Logs & Statistics → Export diagnostics (ZIP)*. It contains logs, settings, profile and recent snapshots. It stays on your PC; share it only if you choose to. |
@@ -244,8 +338,9 @@ python packaging/make_icon.py                         # rebuild the .ico (needs 
 fischmacro/
   app/           entry point (main.py) and shared app context
   ui/            main window, pages/, theme + 6 palettes, calibration tool, debug overlay, tray, toasts
-  vision/        capture (MSS / simulation / screenshot folder), Win32 window lookup, detectors, vision engine
-  automation/    FSM (fsm.py), reel PD controller, threaded runtime engine, modules/
+  vision/        capture, Win32 window lookup, detectors, rod minigame detectors, auto-calibration, OCR
+  automation/    FSM, reel controller (PD + learned model + MPC), rod minigame solvers, routines, watchers,
+                 threaded runtime engine, modules/
   input/         input controller with kill switch, global hotkey manager
   profiles/      typed config schema with UI metadata, profile + settings persistence
   diagnostics/   logging (text + JSON lines), SQLite statistics, snapshots and diagnostic export
@@ -298,22 +393,36 @@ Verified in this repository (automated tests, run on Linux and in the Windows CI
   1080p with noise, 20 FPS, and navigation mode. Hover-duty auto-tune learns an asymmetric rod correctly.
 - Profile persistence, hotkey parsing / auto-repeat / conflicts, the input kill switch, emergency stop,
   behaviour when Roblox is closed or capture fails, and focus loss.
+- Auto-calibration on 40 random rod/skin layouts (moving and parked bar), result validation, and live
+  adaptation to a new skin mid-session.
+- Precision tracking beats standard tracking on lopsided small-bar rods. The learned bar model matches the
+  simulator's true physics within about 10%.
+- Rod minigames (Lullaby, Stellarwave, targets) solved in the simulator *while still catching every fish*.
+- Routines: hotbar and inventory-search item use, OCR button clicks, repeat-until-mutation, scheduling, and a
+  routine running between catches during live automation.
+- Watchers: OCR hunt detection with cooldowns, rod-name changes, fuzzy matching of OCR typos, Discord payloads
+  (against a local test server), automatic rod and skin profiles.
 - The UI builds offscreen in every theme and text size, calibration saves, and buttons drive the engine.
-- The PyInstaller build starts and runs in simulation mode (Linux build verified locally; the Windows `.exe`
-  is built and smoke-tested by the CI workflow).
+- The PyInstaller build starts and runs in simulation mode, and `--self-test` confirms OCR works inside the
+  bundle (Linux build verified locally; the Windows `.exe` is built and self-tested by the CI workflow).
 
 **Needs live testing in Roblox Fisch** (it can't be tested without the real game):
 - Default colours and region positions are estimates. **Calibrate them.**
 - Reel-controller gains for specific rods. The simulator models the bar physics, not Fisch's exact values.
 - The appearance of shake buttons and their colour. Template mode is the most robust option.
 - Perfect-cast detection, disconnect detection and auto reconnect (marked *experimental* in the UI).
-- Behaviour after Fisch UI updates. Re-calibrate after game updates.
+- Behaviour after Fisch UI updates. Auto-adapt handles colour changes; re-run Auto-calibrate after layout changes.
+- Rod minigames: the Lullaby lead time, Stellarwave region and sign colour, and whether Halibut Harpoon targets
+  need clicking at all.
+- Routine presets (button names for Sovereign recharge, appraising, the inventory key) and watcher regions.
+  They are templates marked *verify in game*.
 
 ## Privacy and safety
 
 - All processing is local. Screenshots stay in memory unless you save a diagnostic snapshot.
-- No credentials, cookies, tokens or personal data are read. The app makes no network requests and downloads
-  or executes no code at runtime.
+- No credentials, cookies, tokens or personal data are read. The app downloads or executes no code at runtime.
+- The only network traffic is optional: Discord alerts go to the webhook URL you paste, and screenshots are
+  attached only if you enable that. With no webhook set, nothing leaves your PC. OCR runs offline.
 - No administrator rights, drivers, memory access, process injection or anti-cheat evasion.
 - Not affiliated with Roblox Corporation or the developers of Fisch. Product inspiration was taken from the
   general concept of existing macro tools; all code and artwork here is original.

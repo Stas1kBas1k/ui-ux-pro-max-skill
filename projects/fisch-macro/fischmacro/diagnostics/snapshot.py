@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 REGION_COLORS = {  # BGR
     "reel": (246, 130, 59), "progress": (238, 211, 34), "shake": (237, 58, 124), "cast": (94, 197, 34),
     "catch_popup": (36, 191, 251), "disconnect": (68, 68, 239), "reconnect_button": (180, 180, 180),
+    "mini": (182, 114, 244), "mini_target": (60, 146, 251),
 }
 
 

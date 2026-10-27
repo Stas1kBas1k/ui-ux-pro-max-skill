@@ -19,7 +19,10 @@ from fischmacro.ui.calibration import CalibrationWindow
 from fischmacro.ui.fancy import ToastManager, asset_pixmap
 from fischmacro.ui.icons import icon
 from fischmacro.ui.overlay import DebugOverlay
+from fischmacro.ui.pages.alerts import AlertsPage
 from fischmacro.ui.pages.automation import AutomationPage
+from fischmacro.ui.pages.routines import RoutinesPage
+from fischmacro.ui.picker import ScreenPicker
 from fischmacro.ui.pages.dashboard import DashboardPage
 from fischmacro.ui.pages.hotkeys import HotkeysPage
 from fischmacro.ui.pages.logs import LogsPage
@@ -76,7 +79,8 @@ class RiskDialog(QDialog):
 
 class MainWindow(QMainWindow):
     NAV = [("dashboard", "Dashboard"), ("automation", "Automation"), ("vision", "Computer Vision"),
-           ("profiles", "Profiles"), ("hotkeys", "Hotkeys"), ("settings", "Settings"), ("logs", "Logs & Statistics")]
+           ("profiles", "Profiles"), ("routines", "Routines"), ("alerts", "Alerts & Watchers"), ("hotkeys", "Hotkeys"),
+           ("settings", "Settings"), ("logs", "Logs & Statistics")]
 
     def __init__(self, ctx):
         super().__init__()
@@ -107,10 +111,13 @@ class MainWindow(QMainWindow):
         self.automation = AutomationPage(ctx)
         self.vision = VisionPage(ctx)
         self.profiles = ProfilesPage(ctx)
+        self.routines = RoutinesPage(ctx, self.pick_point)
+        self.alerts = AlertsPage(ctx, self.pick_region)
         self.hotkeys = HotkeysPage(ctx)
         self.settings = SettingsPage(ctx)
         self.logs = LogsPage(ctx)
-        for page in (self.dashboard, self.automation, self.vision, self.profiles, self.hotkeys, self.settings, self.logs):
+        for page in (self.dashboard, self.automation, self.vision, self.profiles, self.routines, self.alerts,
+                     self.hotkeys, self.settings, self.logs):
             self.stack.addWidget(page)
 
         self.dashboard.start_requested.connect(self.start_automation)
@@ -418,6 +425,27 @@ class MainWindow(QMainWindow):
         self.vision.on_profile_switched()
         self.statusBar().showMessage("Calibration saved to profile '%s'" % self.ctx.profile.name, 5000)
 
+    def _screenshot(self):
+        try:
+            return self.ctx.engine.capture_full_frame().image
+        except CaptureError as exc:
+            QMessageBox.warning(self, APP_NAME, f"Could not capture the game: {exc}")
+            return None
+
+    def pick_point(self, title: str, hint: str, initial=None):
+        img = self._screenshot()
+        if img is None:
+            return None
+        dlg = ScreenPicker(img, "point", title, hint, initial, self)
+        return dlg.value if dlg.exec() == QDialog.Accepted else None
+
+    def pick_region(self, title: str, hint: str, initial=None):
+        img = self._screenshot()
+        if img is None:
+            return None
+        dlg = ScreenPicker(img, "rect", title, hint, initial, self)
+        return dlg.value if dlg.exec() == QDialog.Accepted else None
+
     def diagnostic_snapshot(self) -> None:
         eng = self.ctx.engine
         snap = eng.snapshot()
@@ -464,6 +492,10 @@ class MainWindow(QMainWindow):
         self.vision.refresh(s, self.stack.currentWidget() is self.vision)
         if self.stack.currentWidget() is self.logs:
             self.logs.poll_log()
+        elif self.stack.currentWidget() is self.alerts:
+            self.alerts.refresh()
+        elif self.stack.currentWidget() is self.routines:
+            self.routines.refresh()
         if self.overlay.isVisible():
             game_rect = (*s.preview.screen_origin, *s.preview.client_size) if s.preview is not None else None
             self.overlay.update_state(s, self.ctx.profile, game_rect)

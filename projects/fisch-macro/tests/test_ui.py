@@ -109,3 +109,37 @@ def test_toasts_stack_bottom_right(app, window):
     assert len(ts) == 2
     for t in ts:
         assert t.y() > window.stack.height() / 2  # never over the top controls
+
+
+def test_routines_page_edits_and_persists(app, window):
+    page = window.routines
+    assert page.list.count() >= 6  # presets seeded, all disabled
+    assert all(not r.enabled for r in window.ctx.settings.routines)
+    page.list.setCurrentRow(0)
+    page.name.setText("My potion")
+    page._save_fields()
+    page._add_step()
+    assert window.ctx.settings.routines[0].name == "My potion"
+    assert window.ctx.settings.routines[0].steps[-1].kind == "wait"
+    stored = window.ctx.settings_store.load()
+    assert stored.routines[0].name == "My potion"
+
+
+def test_alerts_page_and_discord_without_webhook(app, window):
+    page = window.alerts
+    assert page.list.count() >= 5
+    page.list.setCurrentRow(0)
+    page.keywords.setText("Megalodon")
+    page._save()
+    assert window.ctx.settings.watchers[0].keywords == "Megalodon"
+    page._test_discord()
+    assert "webhook" in page.discord_lbl.text().lower()
+
+
+def test_rod_preset_applies_from_automation_page(app, window, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    page = window.automation
+    page.preset_combo.setCurrentText("Stellarwave Melody")
+    page._apply_preset()
+    assert window.ctx.profile.minigame.kind == "stellarwave"

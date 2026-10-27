@@ -8,9 +8,11 @@ if not exist .venv (
 call .venv\Scripts\activate.bat || goto :error
 python -m pip install --upgrade pip || goto :error
 python -m pip install -r requirements.txt || goto :error
+python -m pip install --no-deps rapidocr-onnxruntime==1.2.3 || goto :error
 python -m pytest -q || goto :error
 pyinstaller packaging\fischmacro.spec --noconfirm --clean || goto :error
 dist\FischMacro\FischMacro.exe --simulation --smoke-test 5 || goto :error
+dist\FischMacro\FischMacro.exe --self-test || goto :error
 echo.
 echo Build OK: dist\FischMacro\FischMacro.exe
 exit /b 0

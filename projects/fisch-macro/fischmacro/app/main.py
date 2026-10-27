@@ -12,7 +12,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--simulation", action="store_true", help="start with the built-in simulated game")
     parser.add_argument("--smoke-test", type=float, default=0.0, metavar="SECONDS",
                         help="open the window, run for N seconds, then exit (used to verify builds)")
+    parser.add_argument("--self-test", action="store_true",
+                        help="check OCR and the vision engine without a window, print the result and exit")
     args = parser.parse_args(argv)
+    if args.self_test:
+        return self_test()
 
     from fischmacro.vision.win32 import enable_dpi_awareness
     enable_dpi_awareness()  # before any window or capture so coordinates are physical pixels
@@ -96,6 +100,33 @@ def main(argv: list[str] | None = None) -> int:
     if args.smoke_test:
         QTimer.singleShot(int(args.smoke_test * 1000), lambda: holder["win"].close())
     return app.exec()
+
+
+def self_test() -> int:
+    """Headless checks for packaged builds: OCR reads text and the vision engine finds a reel."""
+    import cv2
+    import numpy as np
+
+    from fischmacro.profiles.schema import Profile
+    from fischmacro.simulation.game import SimulatedFischGame
+    from fischmacro.vision.engine import VisionEngine
+    from fischmacro.vision.frame import Frame
+    from fischmacro.vision.ocr import OcrEngine, fuzzy_contains
+
+    ok = True
+    img = np.full((90, 640, 3), 30, np.uint8)
+    cv2.putText(img, "Megalodon Hunt has started", (12, 58), cv2.FONT_HERSHEY_DUPLEX, 1.1, (255, 255, 255), 2)
+    text = OcrEngine.shared().text(img)
+    ocr_ok = fuzzy_contains(text, "Megalodon Hunt")
+    print(f"OCR: {'ok' if ocr_ok else 'FAILED'} ({text!r}) {OcrEngine.shared().error}")
+    ok &= ocr_ok
+    g = SimulatedFischGame(seed=1)
+    g._start_reel()
+    g.step(0.1)
+    obs = VisionEngine(Profile()).process(Frame(g.render(), (g.width, g.height)))
+    print(f"Vision: {'ok' if obs.reel.present else 'FAILED'} (reel confidence {obs.reel.confidence:.2f})")
+    ok &= obs.reel.present
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

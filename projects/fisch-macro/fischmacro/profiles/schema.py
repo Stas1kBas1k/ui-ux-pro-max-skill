@@ -361,14 +361,24 @@ class LoadoutConfig:
 
 
 STEP_KINDS = {
-    "use_item": "Use item (hotbar slot or inventory search)",
-    "equip_rod": "Re-equip the rod",
+    "use_item": "Use item",
+    "equip_rod": "Re-equip rod",
     "key": "Press key",
     "type": "Type text",
     "click": "Click point",
-    "click_text": "Click text on screen (OCR)",
-    "wait": "Wait (seconds)",
-    "wait_text": "Wait until text appears (OCR)",
+    "click_text": "Click text (OCR)",
+    "wait": "Wait",
+    "wait_text": "Wait for text (OCR)",
+}
+STEP_HELP = {
+    "use_item": "Value = item name. Uses its hotbar slot from the loadout, otherwise searches the inventory.",
+    "equip_rod": "Presses the rod's hotbar key from the profile.",
+    "key": "Value = key name, e.g. e, q, 2, enter.",
+    "type": "Value = text to type.",
+    "click": "Clicks X/Y (0-1 of the game window). Use the crosshair button to pick it.",
+    "click_text": "Value = button text, e.g. Appraise. Seconds = how long to look for it.",
+    "wait": "Seconds = how long to wait.",
+    "wait_text": "Value = words to wait for (a|b). Seconds = timeout.",
 }
 TRIGGERS = ["manual", "interval", "catches", "watcher"]
 

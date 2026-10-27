@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QScrollArea, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox, QComboBox, QHBoxLayout, QMessageBox, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
+)
 
 from fischmacro.automation.modules import REGISTRY, ModuleHost
+from fischmacro.profiles.rod_presets import PRESETS, apply_preset
 from fischmacro.ui.widgets import Card, ConfigForm, ModuleForm, exp_badge, label, page_header
 
 
@@ -64,9 +67,30 @@ class AutomationPage(QWidget):
             "Timeouts & recovery", "When a stage takes too long the controller releases all input, optionally "
                                    "re-equips, and tries again. Too many recoveries in a row stop automation.",
             p.timing)), "Recovery && timeouts")
-        self.tabs.addTab(page(self._section(
-            "Rod & equipment", "Rod-specific settings live in profiles: create one profile per rod.", p.equipment)),
-            "Rod && equipment")
+        rod = self._section("Rod & equipment", "Rod-specific settings live in profiles: one profile per rod (and per "
+                                               "skin). With a 'Rod name' watcher they are picked automatically.",
+                            p.equipment)
+        h = QHBoxLayout()
+        self.preset_combo = QComboBox()
+        for pr in PRESETS:
+            self.preset_combo.addItem(pr.name)
+        apply_btn = QPushButton("Apply rod preset")
+        apply_btn.clicked.connect(self._apply_preset)
+        h.addWidget(label("Rod preset", "muted"))
+        h.addWidget(self.preset_combo)
+        h.addWidget(apply_btn)
+        h.addStretch(1)
+        rod.add(h)
+        self.preset_note = label("", "faint", wrap=True)
+        rod.add(self.preset_note)
+        self.preset_combo.currentIndexChanged.connect(lambda i: self.preset_note.setText(PRESETS[i].note))
+        self.preset_note.setText(PRESETS[0].note)
+        self.tabs.addTab(page(rod), "Rod && equipment")
+        mini = self._section("Rod minigame", "For rods with their own minigame. The catch bar keeps following the fish "
+                                             "unless you switch that off. Calibrate the 'Rod minigame area' and "
+                                             "'target sign' regions and sample their colours in the calibration tool.",
+                             p.minigame)
+        self.tabs.addTab(page(mini), "Rod minigame")
 
         host = ModuleHost(p.modules)  # fills defaults into the profile's module settings
         mod_cards = []
@@ -92,6 +116,14 @@ class AutomationPage(QWidget):
                        "New Fisch mechanics can be added as modules - see 'Extending' in the README.", "muted", wrap=True))
         mod_cards.append(note)
         self.tabs.addTab(page(*mod_cards), "Modules")
+
+    def _apply_preset(self) -> None:
+        pr = PRESETS[self.preset_combo.currentIndex()]
+        changed = apply_preset(self.ctx.profile, pr)
+        self.ctx.save_profile()
+        self.on_profile_switched()
+        QMessageBox.information(self, "Rod preset", f"Applied '{pr.name}' to profile '{self.ctx.profile.name}'"
+                                + (f": {', '.join(changed)}" if changed else " (already set)."))
 
     def on_profile_switched(self) -> None:
         idx = self.tabs.currentIndex()

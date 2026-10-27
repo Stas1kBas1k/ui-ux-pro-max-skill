@@ -138,6 +138,89 @@ def build_fish(location=(0, 0, 0), scale=1.0, rot_z=0.0):
     return parent
 
 
+def build_emblem(with_tile: bool) -> None:
+    """Bobber + gold hook inside a neon ring - the app emblem."""
+    red = mat("BobberRed", (0.85, 0.06, 0.10), rough=0.18, coat=1.0)
+    white = mat("BobberWhite", (0.92, 0.92, 0.95), rough=0.2, coat=1.0)
+    gold = mat("Gold", (1.0, 0.66, 0.18), metallic=0.85, rough=0.28, emission=(1.0, 0.55, 0.12), strength=0.35)
+    tip = mat("Tip", (1.0, 0.85, 0.3), emission=(1.0, 0.8, 0.25), strength=6.0)
+    ring = gradient_mat("Ring", (0.42, 0.06, 1.0), (0.0, 0.75, 1.0), axis="X", lo=-2.2, hi=2.2, metallic=0.2)
+    ring_glow = ring.node_tree.nodes["Principled BSDF"]
+    ring_glow.inputs["Emission Strength"].default_value = 0.9
+    ramp = next(n for n in ring.node_tree.nodes if n.type == "VALTORGB")
+    ring.node_tree.links.new(ramp.outputs["Color"], ring_glow.inputs["Emission Color"])
+    ripple = mat("Ripple", (0.1, 0.8, 1.0), emission=(0.1, 0.8, 1.0), strength=3.0)
+
+    # bobber: two hemispheres
+    for z_sign, m in ((1, red), (-1, white)):
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=64, ring_count=32, radius=0.9, location=(0, 0, 0.35))
+        b = bpy.context.object
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="DESELECT")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        for v in b.data.vertices:
+            v.select = (v.co.z * z_sign) < -0.02
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.delete(type="VERT")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        b.data.materials.append(m)
+        bpy.ops.object.shade_smooth()
+    # white band
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.9, minor_radius=0.07, location=(0, 0, 0.35))
+    bpy.context.object.data.materials.append(white)
+    bpy.ops.object.shade_smooth()
+    # antenna + glowing tip
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.07, depth=0.9, location=(0, 0, 1.6))
+    bpy.context.object.data.materials.append(red)
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.15, location=(0, 0, 2.1))
+    bpy.context.object.data.materials.append(tip)
+    bpy.ops.object.shade_smooth()
+    # gold hook: a J curve with a bevel, hanging under the bobber
+    curve = bpy.data.curves.new("Hook", "CURVE")
+    curve.dimensions = "3D"
+    curve.bevel_depth = 0.075
+    curve.bevel_resolution = 6
+    sp = curve.splines.new("BEZIER")
+    pts = [(0, 0, -0.55), (0, 0, -1.6), (-0.15, 0, -2.25), (-0.65, 0, -2.2), (-0.8, 0, -1.75)]
+    sp.bezier_points.add(len(pts) - 1)
+    for bp, co in zip(sp.bezier_points, pts):
+        bp.co = co
+        bp.handle_left_type = bp.handle_right_type = "AUTO"
+    hook = bpy.data.objects.new("Hook", curve)
+    bpy.context.collection.objects.link(hook)
+    hook.data.materials.append(gold)
+    bpy.ops.mesh.primitive_cone_add(radius1=0.16, depth=0.35, location=(-0.82, 0, -1.6), rotation=(0, math.radians(-15), 0))
+    bpy.context.object.data.materials.append(gold)
+    # neon ring + water ripple
+    bpy.ops.mesh.primitive_torus_add(major_radius=2.25, minor_radius=0.15, rotation=(math.radians(90), 0, 0),
+                                     location=(0, 0.3, 0.0))
+    bpy.context.object.data.materials.append(ring)
+    bpy.ops.object.shade_smooth()
+    bpy.ops.mesh.primitive_torus_add(major_radius=1.35, minor_radius=0.035, location=(0, 0, -0.45))
+    bpy.context.object.scale = (1, 0.45, 1)
+    bpy.context.object.data.materials.append(ripple)
+    if with_tile:
+        bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 1.3, 0))
+        tile = bpy.context.object
+        tile.scale = (3.05, 0.2, 3.05)
+        bev = tile.modifiers.new("bev", "BEVEL")
+        bev.width = 0.7
+        bev.segments = 14
+        tile.data.materials.append(gradient_mat("Tile", (0.05, 0.05, 0.09), (0.16, 0.09, 0.34), axis="Z", lo=-2.7,
+                                                hi=2.7, metallic=0.0, rough=0.45))
+
+
+def emblem(with_tile: bool) -> None:
+    reset()
+    world((0.01, 0.01, 0.02), 0.25)
+    build_emblem(with_tile)
+    area_light((3, -5, 4), 420, (1.0, 0.96, 0.95), 3, target=(0, 0, 0))
+    area_light((-4, -3, 1), 260, (0.35, 0.8, 1.0), 2, target=(0, 0, 0))
+    area_light((0, 3, 5), 300, (0.7, 0.4, 1.0), 2, target=(0, 0, 0))
+    camera((0, -13.6 if with_tile else -11.5, 0.6), (0, 0, -0.05), lens=60)
+    render(OUT / ("app_icon.png" if with_tile else "logo.png"), 512, 512, transparent=True)
+
+
 def camera(loc, target, lens=50, ortho=None):
     cam_data = bpy.data.cameras.new("Cam")
     cam_data.lens = lens
@@ -269,8 +352,11 @@ def hero() -> None:
 if __name__ == "__main__":
     which = sys.argv[1:] or ["logo", "icon", "hero"]
     if "logo" in which:
-        logo()
+        emblem(with_tile=False)
     if "icon" in which:
+        emblem(with_tile=True)
+    if "fish" in which:  # the original fish artwork
+        logo()
         icon_tile()
     if "hero" in which:
         hero()

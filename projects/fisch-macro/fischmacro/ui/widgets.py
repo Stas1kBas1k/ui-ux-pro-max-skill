@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QIcon, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
@@ -245,7 +245,18 @@ class ColorButton(QPushButton):
     def set_value(self, value: str) -> None:
         self._value = value.upper()
         self.setText(f"  {self._value}")
-        self.setStyleSheet(f"QPushButton {{ text-align: left; border-left: 18px solid {self._value}; }}")
+        pm = QPixmap(36, 36)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor(255, 255, 255, 90), 2))
+        p.setBrush(QColor(self._value))
+        p.drawRoundedRect(QRectF(2, 2, 32, 32), 8, 8)
+        p.end()
+        pm.setDevicePixelRatio(2)
+        self.setIcon(QIcon(pm))
+        self.setIconSize(QSize(18, 18))
+        self.setStyleSheet("QPushButton { text-align: left; padding-left: 10px; }")
 
     def value(self) -> str:
         return self._value

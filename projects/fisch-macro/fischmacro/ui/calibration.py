@@ -23,10 +23,13 @@ from fischmacro.vision.frame import bgr_to_hex
 REGION_QCOLORS = {
     "reel": "#3B82F6", "progress": "#22D3EE", "shake": "#7C3AED", "cast": "#22C55E",
     "catch_popup": "#FBBF24", "disconnect": "#EF4444", "reconnect_button": "#B4B4B4",
+    "mini": "#F472B6", "mini_target": "#FB923C",
 }
 COLOR_TARGETS = {
     "fish_color": "Fish indicator", "bar_color": "Catch bar", "progress_color": "Progress fill",
     "shake_color": "Shake button", "cast_color": "Cast power fill", "dialog_color": "Error dialog background",
+    "minigame.pointer_color": "Lullaby pendulum", "minigame.lit_color": "Lullaby lit section",
+    "minigame.symbol_color": "Stellarwave star sign", "minigame.target_color": "Harpoon target",
 }
 TEMPLATE_TARGETS = {"shake_template": "Shake button template", "catch_template": "Catch popup template"}
 
@@ -223,7 +226,7 @@ class CalibrationWindow(QWidget):
         title = label("Calibration", "cardTitle")
         v.addWidget(title)
         v.addWidget(label("Select a region, then drag a rectangle over that element on the screenshot. "
-                          "Keys 1-7 select regions, H hides this panel, Ctrl+S saves, Esc cancels.", "muted", wrap=True))
+                          "Keys 1-9 select regions, H hides this panel, Ctrl+S saves, Esc cancels.", "muted", wrap=True))
         self.list = QListWidget()
         self.list.setMaximumHeight(200)
         for name, text in REGION_LABELS.items():
@@ -356,7 +359,8 @@ class CalibrationWindow(QWidget):
         p = self.profile
         p.regions = self.regions
         for k, v in self.colors.items():
-            setattr(p.detection, k, v)
+            section, _, attr = k.rpartition(".")
+            setattr(getattr(p, section) if section else p.detection, attr, v)
         for k, v in self.templates.items():
             setattr(p.detection, k, v)
             setattr(p.detection, f"{k}_ref_h", self.client_height)

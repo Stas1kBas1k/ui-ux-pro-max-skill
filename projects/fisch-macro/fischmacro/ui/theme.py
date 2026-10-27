@@ -217,6 +217,9 @@ QListWidget, QTableWidget, QTreeWidget {{
     alternate-background-color: {c['card']};
 }}
 QListWidget::item {{ padding: 7px 9px; border-radius: 7px; }}
+QListWidget::indicator {{ width: 16px; height: 16px; border-radius: 5px; border: 1px solid {c['border_hi']};
+                         background: {c['surface']}; }}
+QListWidget::indicator:checked {{ background: {c['primary']}; border-color: {c['primary']}; }}
 QListWidget::item:selected, QTableWidget::item:selected {{ background: {rgba(c['primary'], 0.28)}; color: {c['text']}; }}
 QHeaderView::section {{ background: {c['card']}; color: {c['muted']}; border: none; border-bottom: 1px solid {c['border']};
                         padding: 7px; font-weight: 600; }}
