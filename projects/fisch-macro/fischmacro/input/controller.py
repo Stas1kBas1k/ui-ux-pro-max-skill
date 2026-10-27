@@ -22,6 +22,13 @@ class InputBackend:
     def button(self, down: bool, button: str = "left") -> None: ...
     def key(self, down: bool, key: str) -> None: ...
 
+    def type_text(self, text: str, delay: float) -> None:
+        for ch in text:
+            self.key(True, ch)
+            self.key(False, ch)
+            if delay:
+                time.sleep(delay)
+
 
 @dataclass
 class RecordingBackend(InputBackend):
@@ -72,6 +79,12 @@ class PynputBackend(InputBackend):
     def key(self, down, key):
         k = self._key(key)
         (self._kb.press if down else self._kb.release)(k)
+
+    def type_text(self, text, delay):
+        for ch in text:
+            self._kb.type(ch)
+            if delay:
+                time.sleep(delay)
 
 
 class InputController:
@@ -166,6 +179,15 @@ class InputController:
                 self._held_keys.discard(key)
                 self._safe(lambda: self.backend.key(False, key))
                 self.sent += 1
+
+    def type_text(self, text: str, delay_ms: int = 35) -> bool:
+        """Type literal text (inventory search, chat). Nothing is held afterwards."""
+        with self._lock:
+            if not self._enabled:
+                return False
+        self.backend.type_text(text, delay_ms / 1000.0)
+        self.sent += len(text)
+        return True
 
     def press_key(self, key: str) -> bool:
         if not key or not self.key_down(key):

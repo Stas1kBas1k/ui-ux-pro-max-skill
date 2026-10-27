@@ -19,7 +19,9 @@ log = logging.getLogger(__name__)
 class AppContext(QObject):
     hotkey = Signal(str)            # emitted on the GUI thread for every hotkey action
     profile_switched = Signal()
-    profile_auto_changed = Signal(str)  # the engine changed the profile itself (auto-calibration)
+    profile_auto_changed = Signal(str, object)  # the engine changed the profile itself (auto-calibration)
+    rod_detected = Signal(str)
+    notice = Signal(str, str)                   # (title, message) for toasts from background decisions
     settings_changed = Signal()
     appearance_changed = Signal()   # theme / text size changed: the window is rebuilt
 
@@ -28,6 +30,12 @@ class AppContext(QObject):
         super().__init__()
         self.settings_store = settings_store or SettingsStore()
         self.settings: AppSettings = self.settings_store.load()
+        if not self.settings.routines:
+            from fischmacro.automation.routines import preset_copies as routine_presets
+            self.settings.routines = routine_presets()   # all disabled until you enable them
+        if not self.settings.watchers:
+            from fischmacro.automation.watchers import preset_copies as watcher_presets
+            self.settings.watchers = watcher_presets()
         set_level(self.settings.logging.level)
         self.profiles = profiles or ProfileManager()
         self.profile: Profile = self._load_active()
@@ -35,7 +43,9 @@ class AppContext(QObject):
         self.engine = AutomationEngine(self.settings, self.profile, self.stats)
         # Called on the vision thread; a queued signal moves the save to the GUI thread.
         self.engine.on_profile_changed = self.profile_auto_changed.emit
-        self.profile_auto_changed.connect(lambda _reason: self.profile_edited())
+        self.engine.on_rod_detected = self.rod_detected.emit
+        self.profile_auto_changed.connect(self._on_auto_changed)
+        self.rod_detected.connect(self.handle_rod)
         self.hotkeys = HotkeyManager(self.settings.hotkeys.as_dict(), self._on_hotkey_thread)
         self.global_hotkeys = False
         self.activity: deque = deque(maxlen=300)  # recent engine events, shared across window rebuilds
@@ -148,6 +158,92 @@ class AppContext(QObject):
         if was:
             self.engine.start_vision()
         return True
+
+    # ------------------------------------------------------------------ automatic rod / skin profiles
+    def _unique_name(self, base: str) -> str:
+        from fischmacro.profiles.manager import _SAFE
+        base = _SAFE.sub(" ", base).strip()[:50] or "Rod"
+        name, i = base, 2
+        while self.profiles.exists(name):
+            name, i = f"{base} ({i})", i + 1
+        return name
+
+    def _profiles_for_rod(self, rod: str) -> list[Profile]:
+        from fischmacro.vision.ocr import fuzzy_contains, normalize
+        want = normalize(rod)
+        out = []
+        for name in self.profiles.names():
+            try:
+                p = self.profiles.load(name)
+            except ProfileError:
+                continue
+            have = normalize(p.equipment.rod_name)
+            if have and have != "any rod" and (have in want or want in have or fuzzy_contains(want, have)):
+                out.append(p)
+        return out
+
+    def _use_profile(self, profile: Profile) -> None:
+        self.profile = profile
+        self.settings.active_profile = profile.name
+        self.engine.request_profile(profile)
+        self.save_settings()
+        self.profile_switched.emit()
+
+    def handle_rod(self, rod: str) -> None:
+        """A rod watcher read a rod name: switch to its profile, creating one the first time."""
+        if not self.settings.notifications.auto_profiles or not rod:
+            return
+        from fischmacro.vision.ocr import fuzzy_contains, normalize
+        current = normalize(self.profile.equipment.rod_name)
+        if current and current != "any rod" and fuzzy_contains(rod, current):
+            return  # already on this rod
+        matches = self._profiles_for_rod(rod)
+        if matches:
+            self._use_profile(matches[0])
+            self.notice.emit("Rod profile", f"{rod} detected - using profile '{matches[0].name}'")
+            return
+        import copy
+
+        from fischmacro.profiles.rod_presets import apply_preset, find_preset
+        p = copy.deepcopy(self.profile)
+        p.name = self._unique_name(rod)
+        p.equipment.rod_name = rod
+        p.equipment.skin = ""
+        preset = find_preset(rod)
+        if preset:
+            apply_preset(p, preset)
+        self.profiles.save(p)
+        self._use_profile(p)
+        self.notice.emit("New rod profile", f"Created '{p.name}'" + (f" with the {preset.name} preset" if preset else "")
+                         + " - colours adapt automatically on the first catch.")
+
+    def _on_auto_changed(self, reason: str, info) -> None:
+        """Auto-calibration changed the profile. A new skin on a calibrated rod becomes its own profile."""
+        from fischmacro.profiles.schema import DetectionConfig
+        defaults = DetectionConfig()
+        info = info or {}
+        calibrated_before = info.get("old_bar") not in (None, defaults.bar_color)
+        if reason != "adapt" or not self.settings.notifications.auto_profiles or not calibrated_before:
+            self.profile_edited()
+            return
+        # Another saved profile of this rod already has these colours: switch to it, keep both files as they are.
+        for other in self._profiles_for_rod(self.profile.equipment.rod_name):
+            if other.name != self.profile.name and other.detection.bar_color == info.get("new_bar") \
+                    and other.detection.fish_color == info.get("new_fish"):
+                self._use_profile(other)
+                self.notice.emit("Skin profile", f"Recognised skin - using '{other.name}'")
+                return
+        # Otherwise the in-memory profile (now holding the new colours) is saved under a new skin name;
+        # the original file on disk keeps the old skin's colours.
+        n = len(self._profiles_for_rod(self.profile.equipment.rod_name)) + 1
+        base = self.profile.equipment.rod_name if self.profile.equipment.rod_name != "Any rod" else self.profile.name
+        self.profile.name = self._unique_name(f"{base} (skin {n})")
+        self.profile.equipment.skin = f"skin {n}"
+        self.profiles.save(self.profile)
+        self.settings.active_profile = self.profile.name
+        self.save_settings()
+        self.profile_switched.emit()
+        self.notice.emit("New skin profile", f"Saved '{self.profile.name}' for the new rod skin")
 
     def shutdown(self) -> None:
         self.hotkeys.stop()

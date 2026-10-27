@@ -97,7 +97,7 @@ def test_engine_adapts_to_new_skin_and_catches():
     saved = []
     eng = AutomationEngine(AppSettings(), profile, source=SimulationCapture(game),
                            inputs=InputController(SimulatedInputBackend(game), 0, 0, False))
-    eng.on_profile_changed = saved.append
+    eng.on_profile_changed = lambda *a: saved.append(a)
     try:
         eng.start_automation()
         end = time.time() + 60

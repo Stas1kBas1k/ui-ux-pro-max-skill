@@ -30,6 +30,9 @@ class SimStats:
     escaped: int = 0
     shake_hits: int = 0
     misclicks: int = 0
+    mini_hits: int = 0
+    mini_misses: int = 0
+    mode_presses: int = 0
 
 
 class SimulatedFischGame:
@@ -47,6 +50,25 @@ class SimulatedFischGame:
         self.bar_width: float | None = None
         self.progress_gain = 0.30
         self.progress_drain = 0.20
+        # Rod minigame on top of the reel: None | "lullaby" | "stellarwave" | "targets"
+        self.rod_minigame: str | None = None
+        self.mini_action = "click"     # or a key name
+        self.mini_period = 1.4         # lullaby pendulum period (s)
+        self._segments: list[tuple[float, float]] = []
+        self._signs: list[tuple[str, float, float]] = []
+        self._target_sign = ""
+        self._targets: list[tuple[float, float]] = []
+        # Items / inventory / appraiser, for routine tests
+        self.inventory_items = ["Luck Potion", "Aurora Totem", "Astral Activator", "Enchant Relic"]
+        self.slots = {"1": "Rod"}
+        self.inventory_open = False
+        self.search_text = ""
+        self.search_focused = False
+        self.equipped = "Rod"
+        self.items_used: dict[str, int] = {}
+        self.appraise_ui = False
+        self.appraise_result = ""
+        self.mutations = ["Normal", "Albino", "Shiny", "Normal", "Darkened", "Sparkling"]
         self.noise = noise
         self.regions = regions or DEFAULT_REGIONS
         self.colors = colors or DetectionConfig()
@@ -104,11 +126,31 @@ class SimulatedFischGame:
         return img
 
     # ------------------------------------------------------------------ input
+    def _inside(self, cx, cy, w=0.12, h=0.03) -> bool:
+        x, y = self.cursor[0] / self.width, self.cursor[1] / self.height
+        return abs(x - cx) <= w and abs(y - cy) <= h
+
+    def _matches(self) -> list[str]:
+        q = self.search_text.lower()
+        return [i for i in self.inventory_items if q and q in i.lower()]
+
     def mouse_down(self) -> None:
         with self.lock:
             if self.mouse_held:
                 return
             self.mouse_held = True
+            if self.inventory_open:
+                if self._inside(0.5, 0.25):
+                    self.search_focused = True
+                elif self._inside(0.5, 0.35) and self._matches():
+                    self.equipped = self._matches()[0]
+                return
+            if self.appraise_ui and self._inside(0.8, 0.6, 0.06, 0.03):
+                self.appraise_result = self.rng.choice(self.mutations)
+                return
+            if self.state == "idle" and self.equipped != "Rod":
+                self.items_used[self.equipped] = self.items_used.get(self.equipped, 0) + 1
+                return
             if self.state == "idle":
                 self._set("casting")
                 self.stats.casts += 1
@@ -122,6 +164,8 @@ class SimulatedFischGame:
                     self.stats.misclicks += 1
             elif self.state == "waiting":
                 self._set("idle")  # clicking while the line is out reels it back in
+            elif self.state == "reel" and self.mini_action == "click":
+                self._mini_action()
             elif self.state == "disconnected":
                 x, y, w, h = self._rect("reconnect_button")
                 cx, cy = self.cursor
@@ -148,10 +192,24 @@ class SimulatedFischGame:
     def key(self, key: str) -> None:
         with self.lock:
             k = key.lower()
+            if k == "`":
+                self.inventory_open = not self.inventory_open
+                self.search_text, self.search_focused = "", False
+                return
+            if self.inventory_open and self.search_focused and len(key) == 1:
+                self.search_text += key
+                return
+            if k in self.slots and self.state in ("idle", "result"):
+                self.equipped = self.slots[k]
+                return
             if k in ("\\", "backslash"):
                 self.nav_mode = not self.nav_mode
             elif k in ("enter", "return") and self.nav_mode and self.state == "shake" and self.shake_button:
                 self._shake_hit()
+            elif k == "q" and self.state == "reel":
+                self.stats.mode_presses += 1
+            elif self.state == "reel" and self.rod_minigame and k == self.mini_action:
+                self._mini_action()
 
     def disconnect(self) -> None:
         with self.lock:
@@ -189,6 +247,102 @@ class SimulatedFischGame:
         self.fish_target = self.fish_x
         self.fish_retarget_at = self.t + 0.5
         self.progress = 0.3
+        if self.rod_minigame == "lullaby":
+            self._new_segments()
+        elif self.rod_minigame == "stellarwave":
+            self._new_signs()
+        elif self.rod_minigame == "targets":
+            self._new_targets()
+
+    # ------------------------------------------------------------------ rod minigames
+    def _new_segments(self) -> None:
+        n = self.rng.randint(1, 3)
+        self._segments = []
+        for _ in range(n):
+            w = self.rng.uniform(0.06, 0.12)
+            a = self.rng.uniform(0.05, 0.95 - w)
+            self._segments.append((a, a + w))
+
+    def _pointer(self) -> float:
+        import math
+        return 0.5 + 0.47 * math.sin(2 * math.pi * (self.t - self.state_t) / self.mini_period)
+
+    _SIGNS = ("circle", "triangle", "square", "cross")
+
+    def _new_signs(self) -> None:
+        r = self.regions["mini"]
+        names = list(self._SIGNS)
+        self.rng.shuffle(names)
+        self._signs = [(n, r.x + r.w * (i + 0.5) / 4, r.y + r.h / 2) for i, n in enumerate(names)]
+        self._target_sign = self.rng.choice(names)
+
+    def _new_targets(self) -> None:
+        r = self.regions["mini"]
+        self._targets = [(self.rng.uniform(r.x + 0.02, r.x + r.w - 0.02), self.rng.uniform(r.y + 0.02, r.y + r.h - 0.02))
+                         for _ in range(self.rng.randint(1, 3))]
+
+    def _mini_action(self) -> None:
+        kind = self.rod_minigame
+        if kind == "lullaby":
+            p = self._pointer()
+            if any(a <= p <= b for a, b in self._segments):
+                self.stats.mini_hits += 1
+                self._new_segments()
+            else:
+                self.stats.mini_misses += 1
+        elif kind in ("stellarwave", "targets"):
+            cx, cy = self.cursor[0] / self.width, self.cursor[1] / self.height
+            if kind == "stellarwave":
+                hit = [n for n, x, y in self._signs if abs(cx - x) < 0.035 and abs(cy - y) < 0.05]
+                if not hit:
+                    return  # clicks outside the wheel do nothing
+                if hit[0] == self._target_sign:
+                    self.stats.mini_hits += 1
+                    self._new_signs()
+                else:
+                    self.stats.mini_misses += 1
+            else:
+                for t in self._targets:
+                    if abs(cx - t[0]) < 0.02 and abs(cy - t[1]) < 0.03:
+                        self._targets.remove(t)
+                        self.stats.mini_hits += 1
+                        if not self._targets:
+                            self._new_targets()
+                        return
+
+    def _render_mini(self, img: np.ndarray) -> None:
+        kind = self.rod_minigame
+        if kind == "lullaby":
+            x, y, w, h = self._rect("mini")
+            ty0, ty1 = y + int(h * 0.35), y + int(h * 0.65)
+            cv2.rectangle(img, (x, ty0), (x + w, ty1), (60, 40, 40), -1)
+            for a, b in self._segments:
+                cv2.rectangle(img, (x + int(a * w), ty0), (x + int(b * w), ty1), (74, 213, 255), -1)  # #FFD54A
+            px = x + int(self._pointer() * w)
+            cv2.rectangle(img, (px - 2, y), (px + 2, y + h), (255, 255, 255), -1)
+        elif kind == "stellarwave":
+            self._draw_sign(img, self._target_sign, self.regions["mini_target"].center(), 0.035)
+            for n, sx, sy in self._signs:
+                self._draw_sign(img, n, (sx, sy), 0.03)
+        elif kind == "targets":
+            for tx, ty in self._targets:
+                cv2.circle(img, (int(tx * self.width), int(ty * self.height)), max(4, int(self.height * 0.012)),
+                           (48, 59, 255), -1)
+
+    def _draw_sign(self, img, name, centre, size) -> None:
+        cx, cy = int(centre[0] * self.width), int(centre[1] * self.height)
+        r = int(size * self.height)
+        col, t = (255, 255, 255), max(2, r // 6)
+        if name == "circle":
+            cv2.circle(img, (cx, cy), r, col, t)
+        elif name == "square":
+            cv2.rectangle(img, (cx - r, cy - r), (cx + r, cy + r), col, t)
+        elif name == "triangle":
+            pts = np.array([(cx, cy - r), (cx - r, cy + r), (cx + r, cy + r)], np.int32)
+            cv2.polylines(img, [pts], True, col, t)
+        else:
+            cv2.line(img, (cx - r, cy - r), (cx + r, cy + r), col, t)
+            cv2.line(img, (cx - r, cy + r), (cx + r, cy - r), col, t)
 
     def _finish(self, success: bool) -> None:
         self.mouse_held = self.mouse_held  # input state is untouched
@@ -296,6 +450,7 @@ class SimulatedFischGame:
                             cv2.FONT_HERSHEY_SIMPLEX, fs, (40, 40, 40), max(1, int(2 * fs)), cv2.LINE_AA)
             elif s == "reel":
                 self._render_reel(img)
+                self._render_mini(img)
             elif s == "result" and self.last_result == "caught":
                 x, y, rw, rh = self._rect("catch_popup")
                 cv2.putText(img, "Caught a fish!", (x + rw // 8, y + rh // 2), cv2.FONT_HERSHEY_DUPLEX,
@@ -311,6 +466,24 @@ class SimulatedFischGame:
                 cv2.rectangle(img, (bx, by), (bx + bw, by + bh), (230, 230, 230), -1)
                 cv2.putText(img, "Reconnect", (bx + bw // 10, by + int(bh * 0.7)), cv2.FONT_HERSHEY_SIMPLEX,
                             max(0.35, bh / 70), (40, 40, 40), 1, cv2.LINE_AA)
+            if self.inventory_open:
+                x0, y0, x1, y1 = int(w * 0.35), int(h * 0.15), int(w * 0.65), int(h * 0.55)
+                cv2.rectangle(img, (x0, y0), (x1, y1), (40, 36, 34), -1)
+                cv2.rectangle(img, (int(w * 0.38), int(h * 0.22)), (int(w * 0.62), int(h * 0.28)), (70, 66, 64), -1)
+                cv2.putText(img, self.search_text or "Search...", (int(w * 0.39), int(h * 0.265)),
+                            cv2.FONT_HERSHEY_SIMPLEX, h / 1100, (230, 230, 230), 1, cv2.LINE_AA)
+                for i, item in enumerate(self._matches()[:3]):
+                    cv2.putText(img, item, (int(w * 0.39), int(h * (0.365 + i * 0.06))), cv2.FONT_HERSHEY_SIMPLEX,
+                                h / 1100, (230, 230, 230), 1, cv2.LINE_AA)
+            if self.appraise_ui:
+                bx, by = int(w * 0.8), int(h * 0.6)
+                cv2.rectangle(img, (bx - int(w * 0.06), by - int(h * 0.03)), (bx + int(w * 0.06), by + int(h * 0.03)),
+                              (60, 140, 60), -1)
+                cv2.putText(img, "Appraise", (bx - int(w * 0.045), by + int(h * 0.01)), cv2.FONT_HERSHEY_SIMPLEX,
+                            h / 1000, (255, 255, 255), 2, cv2.LINE_AA)
+                if self.appraise_result:
+                    cv2.putText(img, f"Result: {self.appraise_result}", (bx - int(w * 0.08), by + int(h * 0.08)),
+                                cv2.FONT_HERSHEY_SIMPLEX, h / 1000, (255, 255, 255), 2, cv2.LINE_AA)
             if self.noise > 0:
                 n = self.np_rng.normal(0, self.noise, img.shape)
                 img = np.clip(img.astype(np.float32) + n, 0, 255).astype(np.uint8)

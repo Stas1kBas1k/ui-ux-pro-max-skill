@@ -132,6 +132,7 @@ class MainWindow(QMainWindow):
         self.tray = Tray(self, app_icon())
         self.tray.set_visible(ctx.settings.notifications.tray_icon)
         ctx.settings_changed.connect(self._on_settings_changed)
+        ctx.notice.connect(self._on_notice)
         for i in range(len(self.NAV)):
             QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, activated=lambda i=i: self.select_page(i))
         self.timer = QTimer(self)
@@ -217,6 +218,9 @@ class MainWindow(QMainWindow):
                 self._fill_profiles()
                 QMessageBox.warning(self, "Profiles", str(exc))
 
+    def _on_notice(self, title: str, message: str) -> None:
+        self.toast(title, message, C["accent"])
+
     def _on_settings_changed(self) -> None:
         self.tray.set_visible(self.ctx.settings.notifications.tray_icon)
 
@@ -250,6 +254,10 @@ class MainWindow(QMainWindow):
                     self.tray.notify("Fisch Macro reminder", msg)
             elif kind == "info" and ("limit" in msg.lower() or "finished" in msg.lower()):
                 self.toast("Session", msg, C["accent"])
+                if n.desktop_notifications:
+                    self.tray.notify("Fisch Macro", msg)
+            elif kind == "watcher":
+                self.toast("Watcher", msg, C["primary_hi"])
                 if n.desktop_notifications:
                     self.tray.notify("Fisch Macro", msg)
             elif kind == "autocal":
@@ -484,7 +492,8 @@ class MainWindow(QMainWindow):
         """Disconnect from the shared context before this window is replaced (theme change)."""
         self.rebuilding = True
         for sig, slot in ((self.ctx.hotkey, self.on_hotkey), (self.ctx.profile_switched, self.on_profile_switched),
-                          (self.ctx.settings_changed, self._on_settings_changed)):
+                          (self.ctx.settings_changed, self._on_settings_changed),
+                          (self.ctx.notice, self._on_notice)):
             try:
                 sig.disconnect(slot)
             except (RuntimeError, TypeError):

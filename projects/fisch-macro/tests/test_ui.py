@@ -61,7 +61,8 @@ def test_config_form_edits_profile(app, window):
     form = window.automation._forms[2]  # reel controller
     spins = form.findChildren(QDoubleSpinBox)
     assert spins
-    spins[0].setValue(6.5)  # Kp is the first field
+    kp = next(sp for sp in spins if abs(sp.value() - window.ctx.profile.reel.kp) < 1e-9 and sp.maximum() == 20.0)
+    kp.setValue(6.5)
     assert window.ctx.profile.reel.kp == 6.5
 
 

@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
+from fischmacro.automation.minigame_solvers import MinigameSolver
 from fischmacro.automation.modules import ModuleContext, ModuleHost
 from fischmacro.automation.reel_controller import ReelController
 from fischmacro.input.controller import InputController
@@ -97,6 +98,7 @@ class FishingStateMachine:
         self.min_switch_interval = min_switch_interval
         self.modules = ModuleHost(profile.modules)
         self.reel = ReelController(profile.reel)
+        self.minigame = MinigameSolver(profile.minigame, self)
         self.state = State.IDLE
         self.ctx = FsmContext()
         self.cycle = CycleInfo()
@@ -106,6 +108,7 @@ class FishingStateMachine:
         self.stop_requested: str = ""
         self.last_obs: Observation | None = None
         self.history: list[tuple[float, State, State, str]] = []
+        self.safe_point_hooks: list = []  # callables(now) run between catches (routines)
 
     # ------------------------------------------------------------------ control
     def emit(self, kind: str, message: str, **data) -> None:
@@ -162,6 +165,7 @@ class FishingStateMachine:
             self.cycle = CycleInfo(started=now)
         if new == State.REELING:
             self.reel.reset()
+            self.minigame.reset()
             self.ctx.last_reel_ui = now
             self.ctx.last_fish = now
         self.emit("state", f"{old.value} -> {new.value}" + (f" ({reason})" if reason else ""),
@@ -349,7 +353,11 @@ class FishingStateMachine:
             if obs.progress.present and self._confident(obs.progress.confidence):
                 self.cycle.last_progress = obs.progress.fill
                 self.cycle.max_progress = max(self.cycle.max_progress, obs.progress.fill)
-        if obs.reel.present and obs.reel.confidence >= cfg.min_confidence:
+        mini = self.profile.minigame
+        steer = mini.kind == "none" or mini.keep_reeling
+        if obs.reel.present and obs.reel.confidence >= cfg.min_confidence and not steer:
+            c.last_fish = now  # rod minigame only: the bar is left alone
+        elif obs.reel.present and obs.reel.confidence >= cfg.min_confidence:
             c.last_fish = now
             hold = self.reel.update(obs.reel.fish_x, obs.reel.bar_left, obs.reel.bar_right, now,
                                     obs.reel.confidence, self.min_switch_interval)
@@ -365,6 +373,8 @@ class FishingStateMachine:
             if obs.reel.ui_present and now - c.last_fish >= cfg.lost_fish_timeout and c.phase == 0:
                 c.phase = 1
                 self.emit("warning", "Fish indicator lost - releasing input until it is found again")
+        if mini.kind != "none" and obs.reel.ui_present:
+            self.minigame.update(obs, now)
         if now - c.last_reel_ui >= cfg.end_grace:
             self._finish_reel(now)
             return
@@ -403,8 +413,15 @@ class FishingStateMachine:
         if self.stop_requested:
             self.stop(now, self.stop_requested)
             return
-        # Safe point: modules may send input here, never during a minigame.
+        # Safe point: modules and routines may send input here, never during a minigame.
         self.modules.call("at_safe_point", self._module_ctx(now))
+        for hook in list(self.safe_point_hooks):
+            try:
+                hook(now)
+            except Exception:  # noqa: BLE001 - a failing routine must not break fishing
+                log.exception("Safe-point hook failed")
+            if not self.running:
+                return
         self._go(State.CASTING, now, "next cast")
 
     def _on_recovery(self, obs: Observation, now: float) -> None:

@@ -9,6 +9,7 @@ import numpy as np
 
 from fischmacro.profiles.schema import Profile
 from fischmacro.vision import detectors as d
+from fischmacro.vision import minigames as mg
 from fischmacro.vision.frame import Frame
 
 # Regions each automation state needs. Capturing only these keeps CPU use low.
@@ -17,7 +18,7 @@ STATE_REGIONS: dict[str, tuple[str, ...]] = {
     "CASTING": ("cast", "reel"),
     "WAITING_FOR_BITE": ("shake", "reel"),
     "SHAKE": ("shake", "reel"),
-    "REELING": ("reel", "progress", "catch_popup"),
+    "REELING": ("reel", "progress", "catch_popup", "mini", "mini_target"),
     "CATCH_CONFIRMED": ("reel", "catch_popup"),
     "RECOVERY": ("reel", "shake", "disconnect", "reconnect_button"),
     "ERROR": ("reel", "disconnect"),
@@ -39,6 +40,9 @@ class Observation:
     cast: d.FillResult = field(default_factory=d.FillResult)
     catch_popup: d.DialogResult = field(default_factory=d.DialogResult)
     disconnect: d.DialogResult = field(default_factory=d.DialogResult)
+    timing: mg.TimingResult = field(default_factory=mg.TimingResult)
+    match: mg.MatchResult = field(default_factory=mg.MatchResult)
+    targets: mg.TargetsResult = field(default_factory=mg.TargetsResult)
     frozen_seconds: float = 0.0
     checked: tuple[str, ...] = ()
     processing_ms: float = 0.0
@@ -132,6 +136,16 @@ class VisionEngine:
             obs.catch_popup = d.detect_template_popup(frame.crop(r), cfg.catch_template, cfg.catch_template_ref_h,
                                                       ch, cfg.template_threshold, self.templates)
             checked.append("catch_popup")
+        mcfg = p.minigame
+        if mcfg.kind != "none" and "mini" in wanted and (r := region("mini")):
+            if mcfg.kind == "lullaby":
+                obs.timing = mg.detect_timing(frame.crop(r), mcfg.pointer_color, mcfg.pointer_tolerance,
+                                              mcfg.lit_color, mcfg.lit_tolerance, mcfg.axis)
+            elif mcfg.kind == "stellarwave" and (t := region("mini_target")):
+                obs.match = mg.detect_match(frame, t, r, mcfg.symbol_color, mcfg.symbol_tolerance)
+            elif mcfg.kind == "targets":
+                obs.targets = mg.detect_targets(frame, r, mcfg.target_color, mcfg.target_tolerance)
+            checked.append("mini")
         if frame.full and cfg.disconnect_detection and (r := region("disconnect")):
             obs.disconnect = d.detect_disconnect(frame.crop(r), cfg)
             checked.append("disconnect")

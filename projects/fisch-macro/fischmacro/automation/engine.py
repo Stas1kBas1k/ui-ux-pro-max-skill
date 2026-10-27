@@ -20,6 +20,12 @@ from fischmacro.automation.reel_controller import ReelDebug
 from fischmacro.diagnostics.stats import SessionStats, StatsStore
 from fischmacro.input.controller import InputController, create_backend
 from fischmacro.profiles.schema import AppSettings, Profile
+from fischmacro.automation.minigame_solvers import MinigameSolver
+from fischmacro.automation.modules import ModuleHost
+from fischmacro.automation.reel_controller import ReelController
+from fischmacro.automation.routines import RoutineContext, RoutineRunner, RoutineScheduler
+from fischmacro.automation.watchers import WatcherService
+from fischmacro.diagnostics.notify import DiscordNotifier
 from fischmacro.vision.autocal import AutoCalibrator, AutoCalResult, apply_result
 from fischmacro.vision.capture import CaptureError, CaptureSource, ScreenCapture, SimulationCapture
 from fischmacro.vision.engine import Observation, VisionEngine
@@ -101,12 +107,23 @@ class AutomationEngine:
         self._last_shake_seen = 0.0
         self._fish_missing_since: float | None = None
         self.on_profile_changed = None  # callback(reason) - the UI saves the profile
+        self.scheduler = RoutineScheduler()
+        self.routine_running = ""
+        self.notifier = DiscordNotifier(lambda: self.settings.notifications)
+        self._latest_image = None
+        self.watchers = WatcherService(lambda: self.settings.watchers, lambda: self._latest_image,
+                                       self._on_watch_match, self._on_rod_detected)
+        self.on_rod_detected = None    # callback(rod_name) - the UI decides which profile to use
+        self.detected_rod = ""
+        self._pending_profile: Profile | None = None
 
     # ------------------------------------------------------------------ setup
     def _new_fsm(self) -> FishingStateMachine:
-        return FishingStateMachine(self.profile, self.inputs, emit=self._on_event,
-                                   sleep=lambda s: self._abort.wait(s),
-                                   min_switch_interval=self.settings.input.min_switch_interval_ms / 1000.0)
+        fsm = FishingStateMachine(self.profile, self.inputs, emit=self._on_event,
+                                  sleep=lambda s: self._abort.wait(s),
+                                  min_switch_interval=self.settings.input.min_switch_interval_ms / 1000.0)
+        fsm.safe_point_hooks.append(self._routines_safe_point)
+        return fsm
 
     def _make_source(self) -> CaptureSource:
         if self._source_override is not None:
@@ -163,10 +180,12 @@ class AutomationEngine:
             for t in self._threads:
                 t.start()
             self._status = Status.MONITORING
+            self.watchers.start()
             log.info("Vision started (%s)", "simulation" if self.simulated else self.settings.capture.mode)
 
     def stop_vision(self) -> None:
         self.stop_automation("vision stopped")
+        self.watchers.stop()
         self._stop_threads.set()
         for t in self._threads:
             t.join(timeout=2.0)
@@ -195,6 +214,7 @@ class AutomationEngine:
             self._last_active_tick = None
             self._snap.last_error = ""
             self.vision.reset_background()
+            self.scheduler.reset(time.monotonic(), 0)
             self.fsm.start(time.monotonic())
             self._status = Status.RUNNING
         self._event("info", f"Automation started with profile '{self.profile.name}'"
@@ -264,7 +284,11 @@ class AutomationEngine:
             logging.ERROR if kind == "error" else logging.INFO
         log.log(level, message, extra={"kind": kind})
         self._events.append((time.time(), kind, message))
-        if self.stats_store and kind in ("error", "recovery", "disconnect", "warning", "detection_error", "info", "reminder"):
+        if kind in ("error", "disconnect") and self.settings.notifications.discord_errors:
+            self.notifier.send("Fisch Macro stopped" if kind == "error" else "Disconnected", message,
+                               image=self._latest_image, key=kind, min_gap=30, error=True)
+        if self.stats_store and kind in ("error", "recovery", "disconnect", "warning", "detection_error", "info", "reminder",
+                                               "watcher", "rod", "autocal"):
             try:
                 self.stats_store.add_event(self.session.session_id, kind, message)
             except Exception:  # noqa: BLE001
@@ -281,6 +305,10 @@ class AutomationEngine:
             else:
                 s.unconfirmed += 1
             s.durations.append(float(data.get("duration", 0.0)))
+            every = self.settings.notifications.notify_every_catches
+            if outcome == "success" and every and s.catches % every == 0:
+                self.notifier.send("Catch milestone", f"{s.catches} catches this session ({self.profile.name})",
+                                   key=f"milestone{s.catches}", min_gap=0)
             s.history.append((str(outcome), float(data.get("duration", 0.0))))
             if self.stats_store:
                 self.stats_store.add_cycle(s.session_id, outcome, data.get("duration", 0.0), data.get("progress"),
@@ -291,6 +319,9 @@ class AutomationEngine:
                 s.perfect_casts += 1
         elif kind == "recovery":
             s.recoveries += 1
+        if kind == "routine":
+            self._event("info", message)
+            return
         if kind in ("state", "shake"):
             log.debug(message)
             if kind == "state":
@@ -460,6 +491,121 @@ class AutomationEngine:
         if frame.full:
             snap.preview = frame
             snap.preview_obs = obs
+            self._latest_image = frame.image
+
+    # ------------------------------------------------------------------ routines
+    def _grab_full_image(self):
+        try:
+            src = self.source or self._make_source()
+            win = src.locate()
+            return src.grab(win, None).image if win.found else None
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Routine capture failed: %s", exc)
+            return None
+
+    def _to_screen(self, nx: float, ny: float) -> tuple[int, int]:
+        try:
+            win = (self.source or self._make_source()).locate()
+            return int(win.left + nx * win.width), int(win.top + ny * win.height)
+        except Exception:  # noqa: BLE001
+            return 0, 0
+
+    def _routine_runner(self) -> RoutineRunner:
+        return RoutineRunner(RoutineContext(
+            input=self.inputs, loadout=self.settings.loadout, rod_key=self.profile.equipment.rod_slot_key,
+            to_screen=self._to_screen, grab=self._grab_full_image, sleep=lambda s: self._abort.wait(s),
+            emit=self._on_event))
+
+    def _on_watch_match(self, w, matches, text, image) -> None:
+        msg = f"{w.name}: {', '.join(matches)}"
+        self._event("watcher", msg + (f' - "{text[:100]}"' if text else ""))
+        if w.notify_discord:
+            self.notifier.send(f"{w.name} detected", f"**{', '.join(matches)}**\n> {text[:300]}", image=image,
+                               key=f"{w.name}:{'|'.join(matches)}", min_gap=60)
+        queued = self.trigger_routines_for_watcher(w.name)
+        if queued:
+            self._event("info", f"Queued routine(s) for {w.name}: {', '.join(queued)}")
+        if w.pause_automation and self._status == Status.RUNNING:
+            self.pause()
+            self._event("warning", f"Paused because {msg}")
+
+    def _on_rod_detected(self, name: str) -> None:
+        self.detected_rod = name
+        self._event("rod", f"Rod detected: {name}")
+        if self.on_rod_detected:
+            self.on_rod_detected(name)
+
+    def request_profile(self, profile: Profile) -> None:
+        """Switch profile now if idle, otherwise at the next safe point (never mid-minigame)."""
+        if self._status in (Status.RUNNING, Status.PAUSED):
+            self._pending_profile = profile
+        else:
+            self.set_profile(profile)
+
+    def _apply_pending_profile(self) -> None:
+        p, self._pending_profile = self._pending_profile, None
+        if p is None:
+            return
+        with self._lock:
+            self.profile = p
+            self.vision = VisionEngine(p)
+            f = self.fsm
+            f.profile = p
+            f.reel = ReelController(p.reel)
+            f.minigame = MinigameSolver(p.minigame, f)
+            f.modules = ModuleHost(p.modules)
+        self._event("info", f"Switched to profile '{p.name}'")
+
+    def _routines_safe_point(self, now: float) -> None:
+        self._apply_pending_profile()
+        for r in self.scheduler.due(self.settings.routines, now, self.session.catches):
+            self.routine_running = r.name
+            try:
+                ok = self._routine_runner().run(r)
+            finally:
+                self.routine_running = ""
+            self.scheduler.mark_run(r, time.monotonic(), self.session.catches)
+            if not ok or self._abort.is_set():
+                return
+
+    def run_routine_now(self, name: str, countdown: float = 3.0) -> str:
+        """Queue (while fishing) or run (while stopped) a routine by name. Returns a status message."""
+        routine = next((r for r in self.settings.routines if r.name == name), None)
+        if routine is None:
+            return f"No routine named '{name}'"
+        if self._status in (Status.RUNNING, Status.PAUSED):
+            self.scheduler.trigger(name)
+            return f"'{name}' will run after the current catch"
+        if self.routine_running:
+            return f"'{self.routine_running}' is already running"
+
+        def worker():
+            self.routine_running = name
+            try:
+                self._abort.clear()
+                self.inputs.enable()
+                if countdown and self._abort.wait(countdown):
+                    return
+                if self.settings.capture.require_focus and self.source is not None and not self.simulated:
+                    win = self.source.locate()
+                    if not win.focused:
+                        self._event("warning", f"Routine '{name}' skipped: Roblox is not focused")
+                        return
+                self._routine_runner().run(routine)
+            finally:
+                self.routine_running = ""
+                self.inputs.release_all()
+
+        self.start_vision()
+        threading.Thread(target=worker, name="routine", daemon=True).start()
+        return f"Running '{name}' in {countdown:.0f} s - click into Roblox now"
+
+    def trigger_routines_for_watcher(self, watcher_name: str) -> list[str]:
+        names = [r.name for r in self.settings.routines if r.enabled and r.trigger == "watcher"
+                 and r.watcher.strip().lower() == watcher_name.strip().lower()]
+        for n in names:
+            self.scheduler.trigger(n)
+        return names
 
     # ------------------------------------------------------------------ auto calibration
     def start_autocalibration(self, seconds: float = 120.0) -> None:
@@ -515,6 +661,8 @@ class AutomationEngine:
         res = self.autocal.run()
         if not res.ok or res.confidence < 0.45 or not self.autocal.validate(self.profile, res):
             return
+        d = self.profile.detection
+        before = {"bar": d.bar_color, "fish": d.fish_color}
         with self._lock:
             changed = apply_result(self.profile, res, regions=wizard or reel_lost)
             self.vision.reset_background()
@@ -528,7 +676,9 @@ class AutomationEngine:
         if changed:
             self._event("autocal", ("Auto-calibrated " if wizard else "Adapted to new rod/skin: ") + ", ".join(changed))
             if self.on_profile_changed:
-                self.on_profile_changed("autocal")
+                self.on_profile_changed("autocal" if wizard else "adapt",
+                                        {"old_bar": before["bar"], "old_fish": before["fish"],
+                                         "new_bar": d.bar_color, "new_fish": d.fish_color})
 
     def _on_fsm_error(self, frame: Frame, obs: Observation) -> None:
         self.inputs.release_all()

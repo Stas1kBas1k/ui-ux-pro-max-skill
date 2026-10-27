@@ -66,6 +66,8 @@ REGION_LABELS = {
     "catch_popup": "Catch result popup",
     "disconnect": "Disconnect dialog",
     "reconnect_button": "Reconnect button",
+    "mini": "Rod minigame area",
+    "mini_target": "Rod minigame target sign",
 }
 
 # Defaults approximate the Fisch layout at 16:9 and are expected to be calibrated.
@@ -77,6 +79,9 @@ DEFAULT_REGIONS = {
     "catch_popup": Region(0.30, 0.10, 0.40, 0.14, enabled=False),
     "disconnect": Region(0.30, 0.30, 0.40, 0.40),
     "reconnect_button": Region(0.52, 0.60, 0.12, 0.05, enabled=False),
+    # Rod-specific minigames (Lullaby track / Stellarwave options, and the sign to match)
+    "mini": Region(0.30, 0.66, 0.40, 0.10),
+    "mini_target": Region(0.46, 0.52, 0.08, 0.10),
 }
 
 
@@ -168,6 +173,39 @@ class ReelConfig:
 
 
 @dataclass
+class MinigameConfig:
+    kind: str = opt("none", "Rod minigame", "Extra minigame of the equipped rod. 'lullaby' = timing clicks on the "
+                    "metronome, 'stellarwave' = click the matching star sign, 'targets' = click marked targets "
+                    "(Halibut Harpoon style, experimental).", choices=["none", "lullaby", "stellarwave", "targets"])
+    keep_reeling: bool = opt(True, "Keep following the fish", "Track the fish with the catch bar while doing the rod "
+                             "minigame. Turn off to only play the rod minigame.")
+    action: str = opt("click", "Minigame input", "'click', or a key name if the game uses a key.", kind="key")
+    neutral_after_click: bool = opt(True, "Move cursor back after clicking an option")
+    # Lullaby
+    mode_key: str = opt("q", "Mode key (Lullaby)", kind="key")
+    mode_presses: int = opt(0, "Mode key presses per catch", "How many times to press the mode key when a minigame "
+                            "starts, to pick a Lullaby mode.", min=0, max=6)
+    pointer_color: str = opt("#FFFFFF", "Pendulum colour", kind="color")
+    pointer_tolerance: int = opt(35, "Pendulum tolerance", min=0, max=128)
+    lit_color: str = opt("#FFD54A", "Lit section colour", kind="color")
+    lit_tolerance: int = opt(45, "Lit section tolerance", min=0, max=128)
+    axis: str = opt("horizontal", "Track direction", choices=["horizontal", "vertical"])
+    lead_ms: int = opt(30, "Input lead", "Fire this much early to cover input + frame latency.", min=0, max=300,
+                       suffix=" ms")
+    min_interval: float = opt(0.25, "Min time between hits", min=0.05, max=3.0, step=0.05, decimals=2, suffix=" s")
+    # Stellarwave
+    symbol_color: str = opt("#FFFFFF", "Star sign colour", kind="color")
+    symbol_tolerance: int = opt(45, "Star sign tolerance", min=0, max=128)
+    match_threshold: float = opt(0.55, "Match threshold", "How similar an option must be to the target sign.",
+                                 min=0.2, max=0.99, step=0.05, decimals=2)
+    # Targets
+    target_color: str = opt("#FF3B30", "Target colour", kind="color", experimental=True)
+    target_tolerance: int = opt(40, "Target tolerance", min=0, max=128, experimental=True)
+    target_interval: float = opt(0.12, "Target click interval", min=0.03, max=2.0, step=0.01, decimals=2, suffix=" s",
+                                 experimental=True)
+
+
+@dataclass
 class TimingConfig:
     bite_timeout: float = opt(45.0, "Bite timeout", "Recast if nothing bites within this time.", min=3.0, max=600.0, step=1.0, decimals=0, suffix=" s")
     shake_timeout: float = opt(25.0, "Shake timeout", min=2.0, max=300.0, step=1.0, decimals=0, suffix=" s")
@@ -181,7 +219,8 @@ class TimingConfig:
 
 @dataclass
 class EquipmentConfig:
-    rod_name: str = opt("Any rod", "Rod name", "For your reference; tune the reel controller per rod.")
+    rod_name: str = opt("Any rod", "Rod name", "Used to pick this profile automatically when the rod is detected.")
+    skin: str = opt("", "Skin", "Optional label; each skin with different minigame colours gets its own profile.")
     rod_slot_key: str = opt("1", "Rod hotbar key", kind="key")
     equip_before_cast: bool = opt(False, "Press rod key before every cast")
     reequip_on_recovery: bool = opt(False, "Re-equip rod during recovery", "Presses the rod key twice (unequip + equip). Only enable if that resets your rod.")
@@ -196,6 +235,7 @@ class Profile:
     casting: CastingConfig = field(default_factory=CastingConfig)
     shake: ShakeConfig = field(default_factory=ShakeConfig)
     reel: ReelConfig = field(default_factory=ReelConfig)
+    minigame: MinigameConfig = field(default_factory=MinigameConfig)
     timing: TimingConfig = field(default_factory=TimingConfig)
     equipment: EquipmentConfig = field(default_factory=EquipmentConfig)
     modules: dict[str, dict] = field(default_factory=dict)
@@ -289,6 +329,92 @@ class NotificationsConfig:
     desktop_notifications: bool = opt(True, "Desktop notifications", "Tray balloons for errors, disconnects and reminders.")
     notify_every_catches: int = opt(0, "Notify every N catches", "0 = off.", min=0, max=1000)
     sound_on_error: bool = opt(True, "Sound on errors and disconnects")
+    discord_webhook: str = opt("", "Discord webhook URL", "Server Settings > Integrations > Webhooks > Copy URL. "
+                               "Leave empty to keep everything offline.")
+    discord_mention: str = opt("", "Discord mention", "e.g. <@123456789> to ping yourself, or @everyone.")
+    discord_errors: bool = opt(True, "Send errors and disconnects to Discord")
+    discord_screenshot: bool = opt(False, "Attach a screenshot to Discord alerts", "Off by default: screenshots stay "
+                                   "on this PC unless you turn this on.")
+    auto_profiles: bool = opt(True, "Automatic rod profiles", "When a rod watcher reads a new rod name, switch to "
+                              "(or create) that rod's profile between catches. New skins get their own profile.")
+
+
+@dataclass
+class LoadoutConfig:
+    """What is where: hotbar slots and how to reach the inventory search."""
+    slots: dict[str, str] = field(default_factory=lambda: {str(i): ("Rod" if i == 1 else "") for i in range(1, 10)})
+    inventory_key: str = opt("`", "Open / close inventory key", "Roblox default backpack key is ` (verify in Fisch).",
+                             kind="key")
+    search_x: float = opt(0.5, "Search box X", min=0.0, max=1.0, step=0.005, decimals=3)
+    search_y: float = opt(0.25, "Search box Y", min=0.0, max=1.0, step=0.005, decimals=3)
+    result_x: float = opt(0.5, "First result X", min=0.0, max=1.0, step=0.005, decimals=3)
+    result_y: float = opt(0.35, "First result Y", min=0.0, max=1.0, step=0.005, decimals=3)
+    type_delay_ms: int = opt(40, "Typing delay", min=0, max=300, suffix=" ms")
+    use_click: bool = opt(True, "Click to use an item after equipping it")
+
+    def slot_for(self, item: str) -> str | None:
+        want = item.strip().lower()
+        for slot, name in self.slots.items():
+            if name and name.strip().lower() == want:
+                return slot
+        return None
+
+
+STEP_KINDS = {
+    "use_item": "Use item (hotbar slot or inventory search)",
+    "equip_rod": "Re-equip the rod",
+    "key": "Press key",
+    "type": "Type text",
+    "click": "Click point",
+    "click_text": "Click text on screen (OCR)",
+    "wait": "Wait (seconds)",
+    "wait_text": "Wait until text appears (OCR)",
+}
+TRIGGERS = ["manual", "interval", "catches", "watcher"]
+
+
+@dataclass
+class RoutineStep:
+    kind: str = "wait"
+    value: str = ""        # key / text / item name / keywords "a|b"
+    seconds: float = 1.0   # wait time or timeout
+    x: float = 0.5
+    y: float = 0.5
+
+
+@dataclass
+class Routine:
+    name: str = "New routine"
+    enabled: bool = False
+    trigger: str = "interval"          # manual | interval | catches | watcher
+    interval_min: float = 15.0
+    every_catches: int = 25
+    watcher: str = ""                  # watcher name that triggers this routine
+    cooldown_min: float = 1.0
+    steps: list[RoutineStep] = field(default_factory=list)
+    repeat_until: str = ""             # stop repeating once any of these words is on screen ("a|b")
+    max_repeats: int = 1
+    reequip_rod: bool = True
+    note: str = ""
+    verify: bool = False               # preset built from guides - check it in game
+
+
+WATCHER_KINDS = ["hunt", "weather", "event", "rod", "custom"]
+
+
+@dataclass
+class Watcher:
+    name: str = "New watcher"
+    enabled: bool = False
+    kind: str = "custom"               # hunt | weather | event | rod | custom
+    region: Region = field(default_factory=lambda: Region(0.25, 0.0, 0.5, 0.12))
+    keywords: str = ""                 # "Megalodon|Great White"; empty = report any text change
+    interval_s: float = 3.0
+    cooldown_min: float = 5.0          # do not re-alert the same match within this time
+    notify_discord: bool = True
+    toast: bool = True
+    pause_automation: bool = False
+    note: str = ""
 
 
 @dataclass
@@ -303,6 +429,9 @@ class AppSettings:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     appearance: AppearanceConfig = field(default_factory=AppearanceConfig)
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
+    loadout: LoadoutConfig = field(default_factory=LoadoutConfig)
+    routines: list[Routine] = field(default_factory=list)
+    watchers: list[Watcher] = field(default_factory=list)
     window_geometry: str = ""
     setup_dismissed: bool = False
     setup_progress: dict[str, bool] = field(default_factory=dict)  # milestones seen in the live game
@@ -335,6 +464,11 @@ def _convert(tp: Any, value: Any, default: Any) -> Any:
     origin = typing.get_origin(tp)
     if dataclasses.is_dataclass(tp):
         return from_dict(tp, value)
+    if origin is list:
+        (vt,) = typing.get_args(tp) or (object,)
+        if not isinstance(value, list):
+            return default
+        return [from_dict(vt, v) if dataclasses.is_dataclass(vt) else v for v in value]
     if origin is dict:
         _, vt = typing.get_args(tp)
         if not isinstance(value, dict):
