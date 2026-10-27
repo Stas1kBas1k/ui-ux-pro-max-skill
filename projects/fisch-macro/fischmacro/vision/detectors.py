@@ -76,11 +76,18 @@ def detect_reel(crop: np.ndarray | None, cfg: DetectionConfig) -> ReelResult:
 
     fish = color_mask(crop, cfg.fish_color, cfg.fish_tolerance)
     fish_fill = fish.sum(axis=0, dtype=np.float32) / (255.0 * h)
+    if getattr(cfg, "fish_tolerance2", 0) > 0:
+        # per colour, then the larger: thin frame borders in each colour must not add up to a "fish"
+        dark = color_mask(crop, cfg.fish_color2, cfg.fish_tolerance2)
+        fish_fill = np.maximum(fish_fill, dark.sum(axis=0, dtype=np.float32) / (255.0 * h))
     fish_cols = fish_fill >= 0.2
-    fish_runs = _runs(fish_cols, max_gap=1)
+    # bridge small gaps so a marker drawn as two outlines counts as one fish
+    fish_runs = _runs(fish_cols, max_gap=max(1, int(0.012 * w)))
     if fish_runs:
-        # The fish is the strongest compact cluster; wide clusters are background noise.
-        best = max(fish_runs, key=lambda r: float(fish_fill[r[0]:r[1]].sum()) / max(1.0, (r[1] - r[0]) ** 0.25))
+        # The fish is the strongest compact cluster spanning the full bar height; wide or short clusters
+        # (frame decoration, background) score lower.
+        best = max(fish_runs, key=lambda r: float(fish_fill[r[0]:r[1]].sum()) * float(fish_fill[r[0]:r[1]].max()) ** 3
+                   / max(1.0, (r[1] - r[0]) ** 0.25))
         width = best[1] - best[0]
         if width <= max(4, 0.25 * w):
             weights = fish_fill[best[0]:best[1]]
@@ -103,7 +110,7 @@ def detect_reel(crop: np.ndarray | None, cfg: DetectionConfig) -> ReelResult:
         best = max(candidates, key=lambda r: float(bar_fill[r[0]:r[1]].sum()))
         width = best[1] - best[0]
         coverage = float(bar_fill[best[0]:best[1]].mean())
-        if width < 0.97 * w:  # a fully white region is not a catch bar
+        if width < 0.97 * w or res.fish_found:  # a fully white region with no fish is not a catch bar
             res.ui_present = True
             res.bar_left = best[0] / w
             res.bar_right = best[1] / w
@@ -114,6 +121,11 @@ def detect_reel(crop: np.ndarray | None, cfg: DetectionConfig) -> ReelResult:
         # Fish on the track and bar-coloured pixels nearby, but no clean bar run (blurred,
         # half-transparent or recoloured bar). Still a minigame: the FSM steers on the fish alone.
         res.ui_present = True
+    if not res.ui_present and res.fish_found and res.fish_confidence >= 0.9 and getattr(cfg, "fish_tolerance2", 0) > 0:
+        # Skinned frames (e.g. Plaguereaver) outline the track with a dark line across the whole width.
+        dark = color_mask(crop, cfg.fish_color2, cfg.fish_tolerance2)
+        if float((dark.sum(axis=1, dtype=np.float32) / (255.0 * w)).max()) >= 0.6:
+            res.ui_present = True
     return res
 
 

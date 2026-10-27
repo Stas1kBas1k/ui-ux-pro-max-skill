@@ -91,6 +91,9 @@ DEFAULT_REGIONS = {
 class DetectionConfig:
     fish_color: str = opt("#434B5B", "Fish indicator colour", "Colour of the fish icon inside the reel bar.", kind="color")
     fish_tolerance: int = opt(22, "Fish colour tolerance", "Per-channel tolerance (0-255).", min=0, max=128)
+    fish_color2: str = opt("#000000", "Fish marker outline", "Skinned rods draw the fish as a dark marker line.",
+                           kind="color")
+    fish_tolerance2: int = opt(18, "Marker tolerance", "0 turns the second fish colour off.", min=0, max=64)
     bar_color: str = opt("#F1F1F1", "Catch bar colour", "Colour of the player-controlled catch bar.", kind="color")
     bar_tolerance: int = opt(24, "Catch bar tolerance", min=0, max=128)
     bar_color2: str = opt("#848587", "Catch bar inner colour",

@@ -62,3 +62,17 @@ def test_input_method_option_defaults_to_scan_codes():
     from fischmacro.profiles.schema import AppSettings
     assert AppSettings().input.method.startswith("Scan codes")
     assert Profile().detection.bar_color2 == "#848587"
+
+
+def test_real_plaguereaver_screenshot():
+    """Real 1910x1073 frame from a player: skinned reel with a dark fish marker in the middle."""
+    import cv2
+    from pathlib import Path
+    img = cv2.imread(str(Path(__file__).parent / "fixtures" / "real" / "plaguereaver_reel.webp"))
+    if img is None:
+        pytest.skip("webp not supported by this OpenCV build")
+    p = Profile()
+    x, y, w, h = p.regions["reel"].to_rect(img.shape[1], img.shape[0])
+    r = detect_reel(img[y:y + h, x:x + w], p.detection)
+    assert r.ui_present and r.fish_found
+    assert abs((x + r.fish_x * w) - 952) < 8
