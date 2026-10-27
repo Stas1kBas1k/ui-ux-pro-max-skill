@@ -257,3 +257,21 @@ def test_all_states_have_handlers():
     for s in State:
         if s not in (State.IDLE, State.ERROR):
             assert hasattr(fsm, f"_on_{s.value.lower()}")
+
+
+def test_normal_cast_mode_is_short_and_jittered():
+    p = Profile()
+    p.casting.mode = "normal"
+    p.casting.normal_hold = 0.3
+    p.casting.jitter = 0.2
+    holds = []
+    for _ in range(8):
+        fsm, _, inputs, events = make_fsm(p)
+        fsm.start(0.0)
+        t = 0.0
+        while fsm.state == State.CASTING and t < 3:
+            fsm.update(obs(cast=0.5), t)  # power bar visible but ignored in normal mode
+            t += 0.01
+        holds.append([d["held"] for k, _, d in events if k == "cast"][0])
+    assert all(0.22 <= h <= 0.40 for h in holds)
+    assert max(holds) - min(holds) > 0.02  # not machine-regular

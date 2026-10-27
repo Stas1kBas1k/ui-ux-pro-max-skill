@@ -33,6 +33,7 @@ class DashboardPage(QWidget):
     preview_requested = Signal()
     calibrate_requested = Signal()
     vision_requested = Signal()
+    autocal_requested = Signal()
 
     def __init__(self, ctx):
         super().__init__()
@@ -99,6 +100,7 @@ class DashboardPage(QWidget):
         self.checklist = SetupChecklist(ctx, {
             "risk": self.risk_requested.emit, "preview": self.preview_requested.emit,
             "calibrate": self.calibrate_requested.emit, "vision": self.vision_requested.emit,
+            "autocal": self.autocal_requested.emit,
             "start": self.start_requested.emit,
         })
         root.addWidget(self.checklist)

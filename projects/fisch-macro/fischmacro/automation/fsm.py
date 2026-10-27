@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+import random
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -81,6 +82,7 @@ class FsmContext:
     last_fish: float = 0.0
     reason: str = ""
     attempts: int = 0
+    jitter: float | None = None  # random timing scale for this cast
 
 
 class FishingStateMachine:
@@ -240,7 +242,9 @@ class FishingStateMachine:
             if obs.reel.ui_present:
                 self._go(State.REELING, now, "minigame already active")
                 return
-            if t >= cfg.pre_cast_delay:
+            if c.jitter is None:
+                c.jitter = random.uniform(1 - cfg.jitter, 1 + cfg.jitter)
+            if t >= cfg.pre_cast_delay * c.jitter:
                 if self.input.mouse_down():
                     c.phase, c.t_mark = 2, now
             return
@@ -259,7 +263,11 @@ class FishingStateMachine:
             elif c.last_fill >= 0.85 and fill < c.last_fill - 0.02:
                 release, perfect = True, False  # passed the peak between frames
             c.last_fill = fill
-        if not release and (cfg.mode == "timed" or not c.cast_seen) and held >= cfg.hold_seconds:
+        scale = c.jitter or 1.0
+        if not release and cfg.mode == "normal" and held >= cfg.normal_hold * scale:
+            release = True
+        if not release and cfg.mode != "normal" and (cfg.mode == "timed" or not c.cast_seen) and \
+                held >= cfg.hold_seconds * (scale if cfg.mode == "timed" else 1.0):
             release = True
             if cfg.mode == "perfect" and not c.cast_seen:
                 self.emit("warning", "Cast power bar not detected - used timed fallback")

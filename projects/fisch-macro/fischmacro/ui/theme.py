@@ -62,7 +62,7 @@ def _derive() -> None:
     EVENT_COLORS.update({
         "info": C["accent"], "cycle": C["success"], "cast": C["primary_hi"], "warning": C["warning"],
         "recovery": C["warning"], "error": C["danger"], "disconnect": C["danger"], "reminder": C["primary_hi"],
-        "module": C["primary_hi"], "state": C["faint"], "shake": C["faint"],
+        "module": C["primary_hi"], "state": C["faint"], "shake": C["faint"], "autocal": C["accent"],
     })
 
 

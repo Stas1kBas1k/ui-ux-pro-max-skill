@@ -40,9 +40,14 @@ class VisionPage(QWidget):
 
         bar = QHBoxLayout()
         self.preview_btn = QPushButton(icon("vision"), "  Start live preview")
-        self.preview_btn.setObjectName("primary")
+        self.preview_btn.setObjectName("")
         self.preview_btn.clicked.connect(self._toggle_preview)
-        cal = QPushButton(icon("crosshair"), "  Calibrate regions (F10)")
+        self.auto_btn = QPushButton(icon("check", C["on_primary"]), "  Auto-calibrate")
+        self.auto_btn.setObjectName("primary")
+        self.auto_btn.setToolTip("Watches the screen while you fish once and finds the reel bar and its colours by itself.")
+        self.auto_btn.clicked.connect(self._toggle_autocal)
+        bar.addWidget(self.auto_btn)
+        cal = QPushButton(icon("crosshair"), "  Manual calibration (F10)")
         cal.clicked.connect(self.calibrate_requested)
         snap = QPushButton(icon("camera"), "  Diagnostic snapshot (F11)")
         snap.clicked.connect(self.snapshot_requested)
@@ -54,6 +59,9 @@ class VisionPage(QWidget):
         bar.addWidget(self.overlay_chk)
         bar.addStretch(1)
         root.addLayout(bar)
+        self.autocal_lbl = label("", "banner", wrap=True)
+        self.autocal_lbl.hide()
+        root.addWidget(self.autocal_lbl)
 
         main = QHBoxLayout()
         main.setSpacing(14)
@@ -151,7 +159,18 @@ class VisionPage(QWidget):
         self.form.set_target(self.ctx.profile.detection)
         self.refresh_regions()
 
+    def _toggle_autocal(self) -> None:
+        eng = self.ctx.engine
+        if eng.autocalibrating:
+            eng.cancel_autocalibration()
+        else:
+            eng.start_autocalibration()
+
     def refresh(self, s: EngineSnapshot, visible: bool) -> None:
+        eng = self.ctx.engine
+        self.auto_btn.setText("  Cancel auto-calibration" if eng.autocalibrating else "  Auto-calibrate")
+        self.autocal_lbl.setVisible(bool(eng.autocal_status))
+        self.autocal_lbl.setText(eng.autocal_status)
         st = s.status
         self.preview_btn.setText("  Stop live preview" if st == Status.MONITORING else "  Start live preview")
         self.preview_btn.setEnabled(st in (Status.STOPPED, Status.MONITORING))

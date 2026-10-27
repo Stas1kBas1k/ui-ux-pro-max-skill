@@ -97,3 +97,36 @@ def test_auto_hover_off_uses_configured_bias():
     c.hover.value = 0.8
     c.update(0.5, 0.4, 0.6, 0.0)
     assert c.debug.hover == 0.4 and not c.debug.hover_learned
+
+
+def test_plant_model_learns_bar_physics():
+    from fischmacro.automation.reel_controller import PlantModel
+    import random
+    rnd = random.Random(2)
+    m = PlantModel()
+    alpha, beta, gamma = 4.8, -2.4, -1.2
+    v = 0.0
+    for _ in range(800):
+        h = float(rnd.random() < 0.5)
+        a = alpha * h + beta + gamma * v
+        m.add(h, v, a + rnd.gauss(0, 0.5))
+        v = max(-2, min(2, v + a * 0.025))
+    la, lb, lg = m.params
+    assert abs(la - alpha) < 0.4 and abs(lb - beta) < 0.3 and abs(lg - gamma) < 0.4
+
+
+def test_precision_mode_plans_toward_fish():
+    cfg = ReelConfig(mode="precision")
+    c = ReelController(cfg)
+    c.plant.params = (4.8, -2.4, -1.2)
+    assert c.update(0.8, 0.3, 0.45, 0.0)       # fish far right of a small bar: hold
+    assert c.debug.reason == "mpc"
+    c2 = ReelController(cfg)
+    c2.plant.params = (4.8, -2.4, -1.2)
+    assert not c2.update(0.2, 0.55, 0.7, 0.0)  # fish far left: release
+
+
+def test_precision_mode_falls_back_until_model_is_learned():
+    c = ReelController(ReelConfig(mode="precision"))
+    c.update(0.5, 0.4, 0.6, 0.0)
+    assert c.debug.reason == "pd"

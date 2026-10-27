@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 class AppContext(QObject):
     hotkey = Signal(str)            # emitted on the GUI thread for every hotkey action
     profile_switched = Signal()
+    profile_auto_changed = Signal(str)  # the engine changed the profile itself (auto-calibration)
     settings_changed = Signal()
     appearance_changed = Signal()   # theme / text size changed: the window is rebuilt
 
@@ -32,6 +33,9 @@ class AppContext(QObject):
         self.profile: Profile = self._load_active()
         self.stats = stats or StatsStore()
         self.engine = AutomationEngine(self.settings, self.profile, self.stats)
+        # Called on the vision thread; a queued signal moves the save to the GUI thread.
+        self.engine.on_profile_changed = self.profile_auto_changed.emit
+        self.profile_auto_changed.connect(lambda _reason: self.profile_edited())
         self.hotkeys = HotkeyManager(self.settings.hotkeys.as_dict(), self._on_hotkey_thread)
         self.global_hotkeys = False
         self.activity: deque = deque(maxlen=300)  # recent engine events, shared across window rebuilds

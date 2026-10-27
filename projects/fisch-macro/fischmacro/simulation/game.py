@@ -43,6 +43,10 @@ class SimulatedFischGame:
         # Rod physics: bar acceleration while held / released. Hover duty = release / (hold + release).
         self.accel_hold = 2.4
         self.accel_release = 2.4
+        # Rod stats: None = derive bar width from difficulty. Low resilience = fast progress drain.
+        self.bar_width: float | None = None
+        self.progress_gain = 0.30
+        self.progress_drain = 0.20
         self.noise = noise
         self.regions = regions or DEFAULT_REGIONS
         self.colors = colors or DetectionConfig()
@@ -178,7 +182,7 @@ class SimulatedFischGame:
 
     def _start_reel(self) -> None:
         self._set("reel")
-        self.bar_w = 0.30 - 0.12 * self.difficulty
+        self.bar_w = self.bar_width if self.bar_width else 0.30 - 0.12 * self.difficulty
         self.bar_x = 0.5 - self.bar_w / 2
         self.bar_v = 0.0
         self.fish_x = self.rng.uniform(0.3, 0.7)
@@ -235,7 +239,7 @@ class SimulatedFischGame:
         delta = self.fish_target - self.fish_x
         self.fish_x += max(-speed * dt, min(speed * dt, delta))
         inside = self.bar_x <= self.fish_x <= self.bar_x + self.bar_w
-        self.progress += (0.30 if inside else -0.20) * dt
+        self.progress += (self.progress_gain if inside else -self.progress_drain) * dt
         if self.progress >= 1.0:
             self.progress = 1.0
             self._finish(True)

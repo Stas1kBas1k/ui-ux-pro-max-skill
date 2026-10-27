@@ -20,6 +20,7 @@ from fischmacro.automation.reel_controller import ReelDebug
 from fischmacro.diagnostics.stats import SessionStats, StatsStore
 from fischmacro.input.controller import InputController, create_backend
 from fischmacro.profiles.schema import AppSettings, Profile
+from fischmacro.vision.autocal import AutoCalibrator, AutoCalResult, apply_result
 from fischmacro.vision.capture import CaptureError, CaptureSource, ScreenCapture, SimulationCapture
 from fischmacro.vision.engine import Observation, VisionEngine
 from fischmacro.vision.frame import Frame, union_rect
@@ -92,6 +93,14 @@ class AutomationEngine:
         self._capture_failures = 0
         self._last_active_tick: float | None = None
         self.session = SessionStats()
+        self.autocal = AutoCalibrator()
+        self.autocal_status = ""
+        self.autocal_result: AutoCalResult | None = None
+        self._autocal_wizard_until = 0.0
+        self._last_autocal_try = -1e9
+        self._last_shake_seen = 0.0
+        self._fish_missing_since: float | None = None
+        self.on_profile_changed = None  # callback(reason) - the UI saves the profile
 
     # ------------------------------------------------------------------ setup
     def _new_fsm(self) -> FishingStateMachine:
@@ -308,14 +317,16 @@ class AutomationEngine:
         perf = self.settings.performance
         while not self._stop_threads.is_set():
             t0 = time.monotonic()
-            period = 1.0 / max(1, perf.detection_fps)
+            reeling = self._status == Status.RUNNING and self.fsm.state == State.REELING
+            period = 1.0 / max(1, perf.reel_fps if reeling else perf.detection_fps)
             try:
                 win = self.source.locate()
                 if not win.found:
                     raise CaptureError("Game window not found - is Roblox open?")
                 full = (not perf.roi_capture or self._status in (Status.MONITORING, Status.PAUSED)
                         or t0 - self._last_full >= perf.full_check_interval
-                        or (self._preview_wanted and t0 - self._last_full >= 1.0 / max(1, perf.preview_fps)))
+                        or (self._preview_wanted and t0 - self._last_full >= 1.0 / max(1, perf.preview_fps))
+                        or self.autocal.wants_frame(t0))
                 rect = None if full else self._wanted_rect(win.width, win.height)
                 frame = self.source.grab(win, rect)
                 if rect is None:
@@ -402,6 +413,7 @@ class AutomationEngine:
         wanted = self.vision.regions_for(state) if (running and not frame.full) else None
         obs = self.vision.process(frame, wanted, state if running else None)
         message = ""
+        self._autocal_tick(frame, obs, now)
         with self._lock:
             if self._status == Status.RUNNING:
                 if self._last_active_tick is not None:
@@ -448,6 +460,75 @@ class AutomationEngine:
         if frame.full:
             snap.preview = frame
             snap.preview_obs = obs
+
+    # ------------------------------------------------------------------ auto calibration
+    def start_autocalibration(self, seconds: float = 120.0) -> None:
+        """Watch the screen until a reel minigame is seen, then calibrate the profile from it."""
+        self.start_vision()
+        self.autocal.clear()
+        self.autocal_result = None
+        self._autocal_wizard_until = time.monotonic() + seconds
+        self.autocal_status = "Watching... cast and play one reel minigame manually (or start automation)."
+        self._event("info", "Auto-calibration started - fish once so the minigame can be found")
+
+    def cancel_autocalibration(self) -> None:
+        self._autocal_wizard_until = 0.0
+        self.autocal_status = "Auto-calibration cancelled."
+
+    @property
+    def autocalibrating(self) -> bool:
+        return time.monotonic() < self._autocal_wizard_until
+
+    def _autocal_tick(self, frame: Frame, obs: Observation, now: float) -> None:
+        wizard = now < self._autocal_wizard_until
+        running = self._status == Status.RUNNING
+        st = self.fsm.state.value
+        adapt = running and self.profile.detection.auto_adapt and st in ("SHAKE", "REELING")
+        if self._autocal_wizard_until and not wizard and self.autocal_result is None and \
+                self.autocal_status.startswith("Watching"):
+            self.autocal_status = "Auto-calibration timed out - no reel minigame was seen."
+        self.autocal.active = wizard or adapt
+        if not self.autocal.active:
+            if self.autocal.frames:
+                self.autocal.clear()
+            self._fish_missing_since = None
+            return
+        if frame.full:
+            self.autocal.add(frame.image, now)
+        if obs.shake.present:
+            self._last_shake_seen = now
+            if not wizard:
+                self.autocal.clear()  # the reel starts after the last shake
+        if obs.reel.ui_present and not obs.reel.fish_found:
+            self._fish_missing_since = self._fish_missing_since or now
+        else:
+            self._fish_missing_since = None
+        span = (self.autocal.frames[-1][0] - self.autocal.frames[0][0]) if len(self.autocal.frames) > 1 else 0.0
+        if span < (2.0 if wizard else 0.9) or now - self._last_autocal_try < 0.5:
+            return
+        reel_lost = (st == "SHAKE" and now - self.fsm.ctx.entered > 1.2 and now - self._last_shake_seen > 0.6
+                     and not obs.reel.ui_present)
+        fish_lost = st == "REELING" and self._fish_missing_since is not None and now - self._fish_missing_since > 0.4
+        if not (wizard or (adapt and (reel_lost or fish_lost))):
+            return
+        self._last_autocal_try = now
+        res = self.autocal.run()
+        if not res.ok or res.confidence < 0.45 or not self.autocal.validate(self.profile, res):
+            return
+        with self._lock:
+            changed = apply_result(self.profile, res, regions=wizard or reel_lost)
+            self.vision.reset_background()
+        if wizard:
+            self._autocal_wizard_until = 0.0
+            self.autocal_result = res
+            self.autocal_status = ("Calibrated: " + ", ".join(changed) + ".") if changed else \
+                "Calibration confirmed - nothing needed to change."
+            if res.notes:
+                self.autocal_status += " " + " ".join(res.notes)
+        if changed:
+            self._event("autocal", ("Auto-calibrated " if wizard else "Adapted to new rod/skin: ") + ", ".join(changed))
+            if self.on_profile_changed:
+                self.on_profile_changed("autocal")
 
     def _on_fsm_error(self, frame: Frame, obs: Observation) -> None:
         self.inputs.release_all()

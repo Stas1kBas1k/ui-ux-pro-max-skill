@@ -102,6 +102,8 @@ class DetectionConfig:
     cast_color: str = opt("#46D246", "Cast power fill colour", kind="color")
     cast_tolerance: int = opt(70, "Cast colour tolerance", min=0, max=160)
     cast_orientation: str = opt("vertical", "Cast bar orientation", choices=["vertical", "horizontal"])
+    auto_adapt: bool = opt(True, "Auto-adapt to rod / skin changes", "When the minigame is not recognised, find it and "
+                           "re-sample its colours automatically (saved to the profile).")
     min_confidence: float = opt(0.5, "Minimum detection confidence", "Below this a detection is ignored.", min=0.05, max=0.99, step=0.05, decimals=2)
     disconnect_detection: bool = opt(True, "Detect disconnect dialogs")
     dialog_color: str = opt("#393B3D", "Dialog background colour", kind="color", experimental=True)
@@ -113,7 +115,12 @@ class DetectionConfig:
 
 @dataclass
 class CastingConfig:
-    mode: str = opt("perfect", "Cast mode", "'perfect' releases when the power bar is full; 'timed' uses a fixed hold.", choices=["perfect", "timed"])
+    mode: str = opt("perfect", "Cast mode", "'perfect' releases when the power bar is full; 'timed' uses a fixed hold; "
+                    "'normal' is a short casual cast right after each catch.", choices=["perfect", "timed", "normal"])
+    normal_hold: float = opt(0.3, "Normal cast hold", "Hold time in normal mode.", min=0.05, max=2.0, step=0.05,
+                             decimals=2, suffix=" s")
+    jitter: float = opt(0.15, "Timing jitter", "Random +/- fraction applied to cast hold and delay so casts are not "
+                        "machine-regular.", min=0.0, max=0.5, step=0.05, decimals=2)
     hold_seconds: float = opt(0.95, "Cast hold time", "Used in timed mode, and as fallback when the power bar is not seen.", min=0.05, max=5.0, step=0.05, decimals=2, suffix=" s")
     perfect_threshold: float = opt(0.95, "Perfect cast threshold", "Release once the power bar is at least this full.", min=0.5, max=1.0, step=0.01, decimals=2, experimental=True)
     max_hold_seconds: float = opt(3.0, "Max cast hold", "Safety limit: always release after this long.", min=0.5, max=10.0, step=0.1, decimals=1, suffix=" s")
@@ -136,6 +143,13 @@ class ShakeConfig:
 
 @dataclass
 class ReelConfig:
+    mode: str = opt("standard", "Tracking mode", "'precision' plans ahead with a learned model of the bar - best for "
+                    "tryhard / low-resilience rods with a tiny bar. Falls back to standard until the model is learned "
+                    "(a few seconds of reeling).", choices=["standard", "precision"])
+    mpc_horizon: float = opt(0.4, "Precision look-ahead", "How far ahead precision mode plans.", min=0.15, max=1.0,
+                             step=0.05, decimals=2, suffix=" s")
+    mpc_margin: float = opt(0.15, "Precision safety margin", "Keeps the fish this far inside the bar edges (fraction of "
+                            "bar width).", min=0.0, max=0.45, step=0.05, decimals=2)
     kp: float = opt(3.0, "Response strength (Kp)", "Proportional gain on fish/bar error.", min=0.0, max=20.0, step=0.1, decimals=2)
     kd: float = opt(0.45, "Damping (Kd)", "Derivative gain; reduces overshoot.", min=0.0, max=5.0, step=0.05, decimals=2)
     feedforward: float = opt(0.25, "Velocity feed-forward", "Adds fish velocity to the command.", min=0.0, max=3.0, step=0.05, decimals=2)
@@ -229,6 +243,7 @@ class CaptureConfig:
 @dataclass
 class PerformanceConfig:
     detection_fps: int = opt(40, "Detection FPS limit", min=5, max=144)
+    reel_fps: int = opt(90, "Reel minigame FPS", "Capture rate while reeling. Higher reacts faster to the fish.", min=20, max=240)
     preview_fps: int = opt(10, "Preview FPS", "Live preview refresh rate in the UI.", min=1, max=30)
     roi_capture: bool = opt(True, "Capture only needed regions", "Greatly reduces CPU usage.")
     full_check_interval: float = opt(2.0, "Full-frame check interval", "How often disconnect checks run.", min=0.25, max=30.0, step=0.25, decimals=2, suffix=" s")

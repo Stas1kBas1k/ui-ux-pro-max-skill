@@ -80,3 +80,16 @@ def test_auto_hover_learns_asymmetric_rod():
     learned = res.fsm.reel.hover.value
     assert learned is not None and abs(learned - 0.25) < 0.06
     assert res.outcomes.get("success", 0) >= 2
+
+
+def test_precision_mode_beats_standard_on_lopsided_small_bar():
+    def catches(mode):
+        total = 0
+        for seed in range(3):
+            p = Profile()
+            p.reel.mode = mode
+            g = SimulatedFischGame(seed=seed, difficulty=0.7)
+            g.bar_width, g.progress_drain, g.accel_hold, g.accel_release = 0.14, 0.4, 4.0, 1.4
+            total += run_simulation(p, game=g, cycles=3, max_time=300).outcomes.get("success", 0)
+        return total
+    assert catches("precision") >= catches("standard") + 3

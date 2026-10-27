@@ -120,6 +120,7 @@ class MainWindow(QMainWindow):
         self.dashboard.preview_requested.connect(self._start_preview)
         self.dashboard.calibrate_requested.connect(self.toggle_calibration)
         self.dashboard.vision_requested.connect(lambda: self.select_page(2))
+        self.dashboard.autocal_requested.connect(self._start_autocal)
         self.vision.calibrate_requested.connect(self.toggle_calibration)
         self.vision.snapshot_requested.connect(self.diagnostic_snapshot)
         self.vision.overlay_toggled.connect(self.set_overlay)
@@ -251,6 +252,9 @@ class MainWindow(QMainWindow):
                 self.toast("Session", msg, C["accent"])
                 if n.desktop_notifications:
                     self.tray.notify("Fisch Macro", msg)
+            elif kind == "autocal":
+                self.toast("Auto-calibration", msg, C["accent"])
+                self.vision.on_profile_switched()
             elif kind == "warning" and "EMERGENCY" in msg:
                 self.toast("Emergency stop", "All inputs released.", C["warning"])
         catches = self.ctx.engine.session.catches
@@ -346,6 +350,10 @@ class MainWindow(QMainWindow):
     def _review_risk(self) -> None:
         self.ctx.settings.risk_acknowledged = False
         self.ensure_acknowledged()
+
+    def _start_autocal(self) -> None:
+        self.select_page(2)
+        self.ctx.engine.start_autocalibration()
 
     def _start_preview(self) -> None:
         self.select_page(2)
