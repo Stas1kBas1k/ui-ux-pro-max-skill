@@ -333,6 +333,42 @@ def shake_color_mask(crop: np.ndarray, cfg: DetectionConfig) -> np.ndarray:
     return color_mask(crop, cfg.shake_color, cfg.shake_tolerance)
 
 
+def dark_buttons(crop: np.ndarray, min_frac: float, max_frac: float) -> list[tuple[float, float, float, float, float]]:
+    """Fisch's SHAKE button: light text (the word) on a dark, see-through disc. Returns (cx, cy, w, h, conf)
+    in pixels. Found from the word: a short, wide cluster of light letters with dark all around it, so it
+    works on any background, including white clouds where a white-only search sees nothing."""
+    h, w = crop.shape[:2]
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    v = hsv[:, :, 2]
+    light = ((v > 185) & (hsv[:, :, 1] < 70)).astype(np.uint8) * 255
+    gap = max(3, int(round(min(w, h) * 0.012)))
+    words = cv2.dilate(light, np.ones((max(1, gap // 2), gap), np.uint8))  # join letters into a word
+    n, _, stats, _ = cv2.connectedComponentsWithStats(words, connectivity=8)
+    out = []
+    area_total = float(w * h)
+    for i in range(1, n):
+        x, y, bw, bh, _area = stats[i]
+        if bh < 6 or not (2.0 <= bw / max(1, bh) <= 8.0):
+            continue
+        r = 0.62 * bw  # the disc is a little wider than its label
+        if not (min_frac <= np.pi * r * r / area_total <= max_frac):
+            continue
+        cx, cy = x + bw / 2, y + bh / 2
+        # a band around the word, inside the disc: mostly dark
+        x0, x1 = int(max(0, cx - r * 0.9)), int(min(w, cx + r * 0.9))
+        y0, y1 = int(max(0, cy - r * 0.75)), int(min(h, cy + r * 0.75))
+        ring = v[y0:y1, x0:x1].astype(np.int16)
+        mask = np.ones(ring.shape, bool)
+        mask[max(0, y - y0):y - y0 + bh, max(0, x - x0):x - x0 + bw] = False  # leave the word out
+        if mask.sum() < 50:
+            continue
+        dark_share = float((ring[mask] < 70).mean())
+        if dark_share < 0.75:
+            continue
+        out.append((cx, cy, 2 * r, 2 * r, _clamp(0.45 + dark_share * 0.5)))
+    return out
+
+
 def detect_shake(frame: Frame, region: Region, cfg: DetectionConfig, templates: TemplateCache | None = None,
                  exclude: np.ndarray | None = None) -> ShakeResult:
     """Find shake buttons. ``exclude`` is a mask of shake-coloured background that
@@ -352,27 +388,42 @@ def detect_shake(frame: Frame, region: Region, cfg: DetectionConfig, templates: 
             out.targets.append(Target((rx + cx) / cw, (ry + cy) / ch, tw / cw, th / ch, _clamp(score)))
         return out
 
-    mask = shake_color_mask(crop, cfg)
-    if exclude is not None and exclude.shape == mask.shape:
-        mask = cv2.bitwise_and(mask, cv2.bitwise_not(exclude))
+    raw = shake_color_mask(crop, cfg)
     k = max(3, int(round(min(w, h) * 0.01)) | 1)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
-    n, _, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
     area_total = float(w * h)
-    for i in range(1, n):
-        x, y, bw, bh, area = stats[i]
-        frac = area / area_total
-        if not (cfg.shake_min_area <= frac <= cfg.shake_max_area):
-            continue
-        aspect = bw / max(1, bh)
-        if not (0.35 <= aspect <= 3.5):
-            continue
-        solidity = area / float(max(1, bw * bh))
-        if solidity < 0.3:
-            continue
-        conf = _clamp(0.4 + solidity * 0.7)
-        cx, cy = centroids[i]
-        out.targets.append(Target((rx + x + bw / 2) / cw, (ry + y + bh / 2) / ch, bw / cw, bh / ch, conf))
+    has_ex = exclude is not None and exclude.shape == raw.shape
+    # Two looks: with the known background blanked out, and as-is. A button that spawns partly over white
+    # scenery loses pixels in the first look but is whole in the second; there it only counts if most of it
+    # is not known background.
+    looks = [cv2.bitwise_and(raw, cv2.bitwise_not(exclude)) if has_ex else raw]
+    if has_ex:
+        looks.append(raw)
+    for li, mask in enumerate(looks):
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+        for i in range(1, n):
+            x, y, bw, bh, area = stats[i]
+            frac = area / area_total
+            if not (cfg.shake_min_area <= frac <= cfg.shake_max_area):
+                continue
+            aspect = bw / max(1, bh)
+            if not (0.35 <= aspect <= 3.5):
+                continue
+            solidity = area / float(max(1, bw * bh))
+            if solidity < 0.3:
+                continue
+            if li == 1:
+                comp = labels[y:y + bh, x:x + bw] == i
+                if float((exclude[y:y + bh, x:x + bw][comp] > 0).mean()) > 0.5:
+                    continue  # mostly scenery that was there before the bite
+            tx, ty = (rx + x + bw / 2) / cw, (ry + y + bh / 2) / ch
+            if any(abs(t.x - tx) < 0.02 and abs(t.y - ty) < 0.02 for t in out.targets):
+                continue
+            out.targets.append(Target(tx, ty, bw / cw, bh / ch, _clamp(0.4 + solidity * 0.7)))
+    for cx, cy, bw, bh, conf in dark_buttons(crop, cfg.shake_min_area, cfg.shake_max_area * 2):
+        tx, ty = (rx + cx) / cw, (ry + cy) / ch
+        if not any(abs(t.x - tx) < 0.02 and abs(t.y - ty) < 0.02 for t in out.targets):
+            out.targets.append(Target(tx, ty, bw / cw, bh / ch, conf))
     out.targets.sort(key=lambda t: -t.confidence)
     return out
 

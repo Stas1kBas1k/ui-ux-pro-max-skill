@@ -97,3 +97,17 @@ def test_region_to_rect_clamps():
     r = Region(0.95, 0.95, 0.2, 0.2)
     x, y, w, h = r.to_rect(100, 100)
     assert x + w <= 100 and y + h <= 100 and w >= 1 and h >= 1
+
+
+def test_packaged_app_keeps_data_next_to_the_exe(tmp_path, monkeypatch):
+    """Unzipped to D:\\MACROS, everything must stay there: nothing on drive C."""
+    import sys
+
+    from fischmacro import paths
+    monkeypatch.delenv("FISCHMACRO_HOME", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "MACROS" / "FischMacro" / "FischMacro.exe"))
+    (tmp_path / "MACROS" / "FischMacro").mkdir(parents=True)
+    assert paths.data_dir() == tmp_path / "MACROS" / "FischMacro" / "data"
+    assert paths.settings_file().parent == paths.data_dir()
+    assert paths.logs_dir().is_relative_to(tmp_path / "MACROS")

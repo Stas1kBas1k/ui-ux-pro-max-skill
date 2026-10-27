@@ -94,14 +94,20 @@ class VisionEngine:
         """While waiting for a bite, remember shake-coloured background so it is never clicked."""
         if state in ("CASTING", "IDLE", None):
             self._shake_ref = None
+            self._shake_ref_t = -1e9
             return
-        if state != "WAITING_FOR_BITE" or found or frame.timestamp - self._shake_ref_t < 1.0:
+        if state != "WAITING_FOR_BITE" or found or frame.timestamp - self._shake_ref_t < 0.5:
             return
         crop = frame.crop(region)
         if crop is None:
             return
-        mask = d.shake_color_mask(crop, self.profile.detection)
-        self._shake_ref = cv2.dilate(mask, np.ones((5, 5), np.uint8))
+        mask = cv2.dilate(d.shake_color_mask(crop, self.profile.detection), np.ones((5, 5), np.uint8))
+        # Keep only what was there in the previous look too: static background stays excluded, while a shake
+        # button that has just appeared (or a splash that has just gone) never ends up in the reference.
+        if self._shake_ref is None or self._shake_ref.shape != mask.shape:
+            self._shake_ref = mask
+        else:
+            self._shake_ref = cv2.bitwise_and(self._shake_ref, mask)
         self._shake_ref_t = frame.timestamp
 
     def process(self, frame: Frame, wanted: tuple[str, ...] | None = None, state: str | None = None) -> Observation:

@@ -28,7 +28,7 @@ def _distance(prof: np.ndarray, sig: np.ndarray) -> np.ndarray:
 def _modal_signature(prof: np.ndarray, diff: float) -> np.ndarray:
     """The column look shared by the most columns (the empty track, as the bar and decorations are smaller)."""
     w = prof.shape[1]
-    idx = np.arange(int(w * 0.03), int(w * 0.97), max(1, w // 120))
+    idx = np.arange(int(w * 0.03), int(w * 0.97), max(1, w // 64))
     cols = prof[:, idx].transpose(1, 0, 2).reshape(len(idx), -1)
     d = np.abs(cols[:, None, :] - cols[None, :, :]).reshape(len(idx), len(idx), ROWS, 3).max(axis=3).mean(axis=2)
     best = int((d <= diff).sum(axis=1).argmax())
@@ -52,6 +52,8 @@ class AdaptiveReel:
         self.last_bar: tuple[float, float] | None = None
         self.hits = 0
         self.misses = 0
+        self._modal: np.ndarray | None = None  # cached guess of the track's look while none is learned
+        self._modal_age = 0
 
     def _track_extent(self, match: np.ndarray, w: int) -> tuple[int, int] | None:
         runs = [r for r in _runs(match, max_gap=max(2, int(0.01 * w))) if r[1] - r[0] >= 0.03 * w]
@@ -71,7 +73,14 @@ class AdaptiveReel:
             self.reset()
             self.shape = (h, w)
         prof = _profile(crop)
-        sig = self.track_sig if self.track_sig is not None else _modal_signature(prof, self.DIFF)
+        if self.track_sig is not None:
+            sig = self.track_sig
+        else:
+            # guessing the track's look is the expensive part; while waiting for a bite reuse it a few frames
+            if self._modal is None or self._modal_age >= 4:
+                self._modal, self._modal_age = _modal_signature(prof, self.DIFF), 0
+            self._modal_age += 1
+            sig = self._modal
         dist = _distance(prof, sig)
         match = dist <= self.DIFF
         if match.mean() < 0.25:

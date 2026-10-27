@@ -50,6 +50,8 @@ class SimulatedFischGame:
         self.bar_width: float | None = None
         self.progress_gain = 0.30
         self.progress_drain = 0.20
+        # "fisch": dark disc with light text, as in the real game; "classic": light rounded button
+        self.shake_style = "fisch"
         # Fancy rod skin (see random_skin); None = the plain default look
         self.skin: dict | None = None
         # Rod minigame on top of the reel: None | "lullaby" | "stellarwave" | "targets"
@@ -456,16 +458,29 @@ class SimulatedFischGame:
                 bw, bh = self._button_size()
                 p0 = (int((bx - bw / 2) * w), int((by - bh / 2) * h))
                 p1 = (int((bx + bw / 2) * w), int((by + bh / 2) * h))
-                col = hex_to_bgr(c.shake_color)
-                rad = max(2, (p1[1] - p0[1]) // 3)
-                cv2.rectangle(img, (p0[0] + rad, p0[1]), (p1[0] - rad, p1[1]), col, -1)
-                cv2.rectangle(img, (p0[0], p0[1] + rad), (p1[0], p1[1] - rad), col, -1)
-                for cx, cy in ((p0[0] + rad, p0[1] + rad), (p1[0] - rad, p0[1] + rad),
-                               (p0[0] + rad, p1[1] - rad), (p1[0] - rad, p1[1] - rad)):
-                    cv2.circle(img, (cx, cy), rad, col, -1)
-                fs = max(0.3, (p1[1] - p0[1]) / 70)
-                cv2.putText(img, "SHAKE", (p0[0] + int(0.12 * (p1[0] - p0[0])), (p0[1] + p1[1]) // 2 + int(8 * fs)),
-                            cv2.FONT_HERSHEY_SIMPLEX, fs, (40, 40, 40), max(1, int(2 * fs)), cv2.LINE_AA)
+                if self.shake_style == "fisch":
+                    # as in game: a dark, see-through disc with the word SHAKE in light letters
+                    cx, cy = (p0[0] + p1[0]) // 2, (p0[1] + p1[1]) // 2
+                    r = int(0.55 * (p1[0] - p0[0]))
+                    disc = img.copy()
+                    cv2.circle(disc, (cx, cy), r, (20, 20, 20), -1)
+                    cv2.addWeighted(disc, 0.88, img, 0.12, 0, img)
+                    cv2.circle(img, (cx, cy), r, (70, 70, 70), 2, cv2.LINE_AA)
+                    fs = r / 62
+                    (tw, th), _ = cv2.getTextSize("SHAKE", cv2.FONT_HERSHEY_SIMPLEX, fs, max(1, int(2 * fs)))
+                    cv2.putText(img, "SHAKE", (cx - tw // 2, cy + th // 2), cv2.FONT_HERSHEY_SIMPLEX, fs,
+                                (240, 240, 240), max(1, int(2 * fs)), cv2.LINE_AA)
+                else:
+                    col = hex_to_bgr(c.shake_color)
+                    rad = max(2, (p1[1] - p0[1]) // 3)
+                    cv2.rectangle(img, (p0[0] + rad, p0[1]), (p1[0] - rad, p1[1]), col, -1)
+                    cv2.rectangle(img, (p0[0], p0[1] + rad), (p1[0], p1[1] - rad), col, -1)
+                    for cx, cy in ((p0[0] + rad, p0[1] + rad), (p1[0] - rad, p0[1] + rad),
+                                   (p0[0] + rad, p1[1] - rad), (p1[0] - rad, p1[1] - rad)):
+                        cv2.circle(img, (cx, cy), rad, col, -1)
+                    fs = max(0.3, (p1[1] - p0[1]) / 70)
+                    cv2.putText(img, "SHAKE", (p0[0] + int(0.12 * (p1[0] - p0[0])), (p0[1] + p1[1]) // 2 + int(8 * fs)),
+                                cv2.FONT_HERSHEY_SIMPLEX, fs, (40, 40, 40), max(1, int(2 * fs)), cv2.LINE_AA)
             elif s == "reel":
                 self._render_reel(img)
                 self._render_mini(img)

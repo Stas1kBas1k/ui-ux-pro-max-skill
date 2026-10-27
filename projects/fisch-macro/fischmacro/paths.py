@@ -6,10 +6,29 @@ import sys
 from pathlib import Path
 
 
+def _portable_dir() -> Path | None:
+    """The packaged app is portable: its data lives in a 'data' folder next to FischMacro.exe, so everything
+    stays on the drive you unzipped it to (e.g. D:\\MACROS) and nothing is written to drive C."""
+    if not getattr(sys, "frozen", False):
+        return None
+    base = Path(sys.executable).resolve().parent / "data"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        probe = base / ".write-test"
+        probe.write_text("ok")
+        probe.unlink()
+        return base
+    except OSError:
+        return None  # read-only location (e.g. Program Files): fall back to the user folder
+
+
 def data_dir() -> Path:
     override = os.environ.get("FISCHMACRO_HOME")
+    portable = None if override else _portable_dir()
     if override:
         base = Path(override)
+    elif portable is not None:
+        base = portable
     elif sys.platform == "win32":
         base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "FischMacro"
     else:

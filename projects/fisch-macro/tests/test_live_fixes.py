@@ -76,3 +76,24 @@ def test_real_plaguereaver_screenshot():
     r = detect_reel(img[y:y + h, x:x + w], p.detection)
     assert r.ui_present and r.fish_found
     assert abs((x + r.fish_x * w) - 952) < 8
+
+
+def test_real_shake_button_is_found():
+    """Real 1905x1067 frame: Fisch's SHAKE button is a dark see-through disc with light text."""
+    import cv2
+    from pathlib import Path
+
+    from fischmacro.vision.detectors import detect_shake
+    from fischmacro.vision.frame import Frame
+    root = Path(__file__).parent / "fixtures" / "real"
+    img = cv2.imread(str(root / "shake_button.webp"))
+    if img is None:
+        pytest.skip("webp not supported by this OpenCV build")
+    p = Profile()
+    res = detect_shake(Frame(img, (img.shape[1], img.shape[0])), p.region("shake"), p.detection)
+    assert len(res.targets) == 1
+    t = res.targets[0]
+    assert abs(t.x - 1200 / 1905) < 0.01 and abs(t.y - 243 / 1067) < 0.01
+    # and nothing is clicked on a frame without a shake button
+    img = cv2.imread(str(root / "plaguereaver_reel.webp"))
+    assert detect_shake(Frame(img, (img.shape[1], img.shape[0])), p.region("shake"), p.detection).targets == []

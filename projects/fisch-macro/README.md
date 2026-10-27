@@ -192,7 +192,12 @@ already-calibrated rod gets a separate *"(skin N)"* profile. Switches only happe
 
 1. Get `FischMacro-windows` from the GitHub Actions run of the **Fisch Macro (Windows build)** workflow, or
    build it yourself (Option C).
-2. Unzip it anywhere and run `FischMacro.exe`. No installer and no administrator rights are needed.
+2. Unzip it anywhere, for example `D:\MACROS\FischMacro`, and run `FischMacro.exe`. No installer and no
+   administrator rights are needed.
+3. **The packaged app is portable:** settings, profiles, logs, statistics and snapshots are kept in a `data`
+   folder next to `FischMacro.exe`, so nothing is written to drive C. Move or back up the whole folder to move
+   everything. (Only if that folder is read-only does it fall back to `%APPDATA%\FischMacro`. Set the
+   `FISCHMACRO_HOME` environment variable to pick any other folder.)
 
 ### Option B: run from source (development)
 
@@ -439,7 +444,8 @@ buttons. Drag it anywhere; double-click to expand. It returns to the full window
 
 ## Privacy and safety
 
-- All processing is local. Screenshots stay in memory unless you save a diagnostic snapshot, or you turn on
+- All processing is local, and the packaged app keeps all its files in its own folder (see Install).
+  Screenshots stay in memory unless you save a diagnostic snapshot, or you turn on
   the optional AI assistant's screen reading (see above).
 - No credentials, cookies, tokens or personal data are read. The app downloads or executes no code at runtime.
 - The only network traffic is optional: Discord alerts go to the webhook URL you paste (screenshots only if you
