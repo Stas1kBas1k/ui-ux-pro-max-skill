@@ -68,6 +68,37 @@ class ReelResult:
         return self.bar_right - self.bar_left
 
 
+def shape_fish(crop: np.ndarray) -> tuple[float, float, int] | None:
+    """Find the fish marker by shape, whatever its colour: a thin line that runs most of the bar's height
+    and differs from the track on both sides. Returns (x 0..1, confidence, width px) or None."""
+    h, w = crop.shape[:2]
+    if w < 40 or h < 6:
+        return None
+    img = crop.astype(np.int16)
+    k = max(3, int(0.02 * w))
+    mid = img[:, k:w - k]
+    left, right = img[:, :w - 2 * k], img[:, 2 * k:]
+    dl = np.abs(mid - left).max(axis=2)
+    dr = np.abs(mid - right).max(axis=2)
+    stands_out = np.minimum(dl, dr) > 38
+    score = np.zeros(w, np.float32)
+    score[k:w - k] = stands_out.mean(axis=0)
+    margin = int(0.04 * w)  # frame decoration lives at the ends
+    score[:margin] = 0
+    score[w - margin:] = 0
+    runs = [r for r in _runs(score >= 0.55, max_gap=max(1, int(0.008 * w))) if r[1] - r[0] <= max(3, int(0.03 * w))]
+    if not runs:
+        return None
+    best = max(runs, key=lambda r: float(score[r[0]:r[1]].sum()) * float(score[r[0]:r[1]].max()))
+    peak = float(score[best[0]:best[1]].max())
+    weights = score[best[0]:best[1]]
+    cx = float(np.average(np.arange(best[0], best[1]), weights=weights)) + 0.5
+    # a second line just as strong elsewhere makes it ambiguous
+    others = [float(score[a:b].max()) for a, b in runs if (a, b) != best and abs((a + b) / 2 - cx) > 0.05 * w]
+    conf = _clamp((peak - 0.4) / 0.4) * (0.6 if others and max(others) >= peak - 0.05 else 1.0)
+    return cx / w, conf, best[1] - best[0]
+
+
 def detect_reel(crop: np.ndarray | None, cfg: DetectionConfig) -> ReelResult:
     if crop is None or crop.size == 0:
         return ReelResult()
@@ -95,6 +126,16 @@ def detect_reel(crop: np.ndarray | None, cfg: DetectionConfig) -> ReelResult:
             res.fish_found = True
             res.fish_x = cx / w
             res.fish_confidence = _clamp(float(weights.max()) / 0.55) * _clamp(width / 2.0)
+
+    if getattr(cfg, "fish_any_colour", False):
+        found = shape_fish(crop)
+        if found is not None and found[1] >= 0.5:
+            fx, fconf, fw = found
+            if not res.fish_found or abs(res.fish_x - fx) > 0.03 or fconf > res.fish_confidence:
+                res.fish_found, res.fish_x, res.fish_confidence = True, fx, fconf
+                fish_cols = np.zeros(w, bool)
+                c0 = int(fx * w)
+                fish_cols[max(0, c0 - fw):c0 + fw + 1] = True
 
     bar = color_mask(crop, cfg.bar_color, cfg.bar_tolerance)
     if getattr(cfg, "bar_tolerance2", 0) > 0:

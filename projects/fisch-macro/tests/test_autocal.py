@@ -73,7 +73,10 @@ def test_validation_rejects_bad_result():
     assert cal.validate(Profile(), good)
     bad = copy.deepcopy(good)
     bad.fish_color = "#FF00FF"
-    assert not cal.validate(Profile(), bad)
+    assert cal.validate(Profile(), bad)  # shape detection still finds the fish with a wrong colour
+    colour_only = Profile()
+    colour_only.detection.fish_any_colour = False
+    assert not cal.validate(colour_only, bad)
 
 
 def test_apply_result_reports_changes():

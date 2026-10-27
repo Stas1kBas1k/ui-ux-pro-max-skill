@@ -69,6 +69,8 @@ def test_wrong_colour_calibration_means_no_detection():
     frame, _ = load("reel_1280x720")
     p = Profile()
     p.detection.fish_color = "#FF00FF"
+    p.detection.fish_any_colour = False
+    p.detection.fish_tolerance2 = 0
     obs = VisionEngine(p).process(frame)
     # The bar is still seen (so the minigame is known to be active) but without the fish
     # there is no confident fish+bar pair, so the controller will not steer.
@@ -130,3 +132,11 @@ def test_empty_inputs_are_safe():
     assert not d.detect_progress(None, cfg).present
     assert not d.detect_cast(None, cfg).present
     assert not d.detect_disconnect(None, cfg).detected
+
+
+def test_fish_found_by_shape_with_any_colour():
+    frame, truth = load("reel_1280x720")
+    p = Profile()
+    p.detection.fish_color = "#FF00FF"  # wrong on purpose
+    obs = VisionEngine(p).process(frame)
+    assert obs.reel.fish_found
