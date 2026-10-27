@@ -1,0 +1,11 @@
+{
+  "state": "reel",
+  "fish_x": 0.12,
+  "bar_left": 0.05,
+  "bar_right": 0.302,
+  "progress": 0.2,
+  "button": null,
+  "power": 0.0,
+  "width": 1920,
+  "height": 1080
+}

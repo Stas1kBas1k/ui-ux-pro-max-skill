@@ -1,0 +1,14 @@
+{
+  "state": "shake",
+  "fish_x": 0.5,
+  "bar_left": 0.4,
+  "bar_right": 0.65,
+  "progress": 0.3,
+  "button": [
+    0.3,
+    0.62
+  ],
+  "power": 0.0,
+  "width": 1600,
+  "height": 900
+}
