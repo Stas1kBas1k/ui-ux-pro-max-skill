@@ -9,7 +9,7 @@ import numpy as np
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
+    QCheckBox, QComboBox, QFrame, QHBoxLayout, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
     QVBoxLayout, QWidget,
 )
 

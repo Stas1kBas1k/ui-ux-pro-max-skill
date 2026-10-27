@@ -58,9 +58,10 @@ def test_every_theme_and_text_size_builds(app, theme):
 
 
 def test_config_form_edits_profile(app, window):
-    form = window.automation._forms[2]  # reel controller
+    from fischmacro.ui.pages.automation import AutomationPage
+    page = AutomationPage(window.ctx)  # the "Advanced" dialog content
+    form = page._forms[2]  # reel controller
     spins = form.findChildren(QDoubleSpinBox)
-    assert spins
     kp = next(sp for sp in spins if abs(sp.value() - window.ctx.profile.reel.kp) < 1e-9 and sp.maximum() == 20.0)
     kp.setValue(6.5)
     assert window.ctx.profile.reel.kp == 6.5
@@ -111,35 +112,70 @@ def test_toasts_stack_bottom_right(app, window):
         assert t.y() > window.stack.height() / 2  # never over the top controls
 
 
-def test_routines_page_edits_and_persists(app, window):
-    page = window.routines
-    assert page.list.count() >= 6  # presets seeded, all disabled
-    assert all(not r.enabled for r in window.ctx.settings.routines)
-    page.list.setCurrentRow(0)
-    page.name.setText("My potion")
-    page._save_fields()
-    page._add_step()
-    assert window.ctx.settings.routines[0].name == "My potion"
-    assert window.ctx.settings.routines[0].steps[-1].kind == "wait"
+def test_addons_page_edits_settings(app, window):
+    page = window.addons
+    a = window.ctx.settings.addons
+    card = page.cards["sovereign"]
+    card.check.setChecked(True)
+    assert a.sovereign.enabled
+    assert not card.body.isVisible()
+    card.toggle_expanded()
+    assert card.body.isVisibleTo(card)
+    window.ctx.engine.addons.on_power_text("Power 77%", 1.0)
+    window.select_page(2)
+    page.refresh()
+    assert page.power_val.text() == "77%"
     stored = window.ctx.settings_store.load()
-    assert stored.routines[0].name == "My potion"
+    assert stored.addons.sovereign.enabled
 
 
-def test_alerts_page_and_discord_without_webhook(app, window):
-    page = window.alerts
-    assert page.list.count() >= 5
-    page.list.setCurrentRow(0)
-    page.keywords.setText("Megalodon")
-    page._save()
-    assert window.ctx.settings.watchers[0].keywords == "Megalodon"
-    page._test_discord()
-    assert "webhook" in page.discord_lbl.text().lower()
+def test_totem_dropdowns_have_dots_and_save(app, window):
+    from fischmacro.ui.components import DotCombo
+    card = window.addons.cards["totem"]
+    combos = card.findChildren(DotCombo)
+    weather = next(c for c in combos if c.findText("Aurora Borealis") >= 0)
+    assert not weather.itemIcon(weather.findText("Aurora Borealis")).isNull()
+    weather.setCurrentText("Aurora Borealis")
+    assert window.ctx.settings.addons.totem.weather == "Aurora Borealis"
 
 
-def test_rod_preset_applies_from_automation_page(app, window, monkeypatch):
+def test_hunt_chips_search_and_add(app, window):
+    page = window.hunts
+    cat = page.catalogue
+    cat.chips["Megalodon"].click()
+    assert "Megalodon" in window.ctx.settings.hunts.watched
+    cat.search.setText("mega")
+    assert cat.chips["Megalodon"].isVisibleTo(cat) and not cat.chips["Kraken"].isVisibleTo(cat)
+    cat.search.setText("Lucky Pool")
+    cat._add_typed()
+    h = window.ctx.settings.hunts
+    assert "Lucky Pool" in h.custom and "Lucky Pool" in h.watched
+    kinds = [w.kind for w in window.ctx.engine.active_watchers()]
+    assert "hunt" in kinds
+    cat.remove("Lucky Pool")
+    assert "Lucky Pool" not in window.ctx.settings.hunts.custom
+
+
+def test_fishing_page_dropdowns(app, window):
+    from fischmacro.ui.components import DotCombo
+    page = window.fishing
+    combos = page.findChildren(DotCombo)
+    cast = next(c for c in combos if c.findText("Normal") >= 0 and c.findText("Perfect") >= 0)
+    cast.setCurrentText("Normal")
+    assert window.ctx.profile.casting.mode == "normal"
+    mini = next(c for c in page.findChildren(DotCombo) if c.findText("Lullaby") >= 0 and c.findText("Targets") >= 0)
+    mini.setCurrentText("Lullaby")
+    pump(app, 0.05)
+    assert window.ctx.profile.minigame.kind == "lullaby"
+    modes = next(c for c in page.findChildren(DotCombo) if c.findText("Serene Hymn") >= 0)
+    modes.setCurrentText("Serene Hymn")
+    assert window.ctx.profile.minigame.lullaby_mode == "Serene Hymn"
+
+
+def test_rod_preset_applies_from_fishing_page(app, window, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
     monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
-    page = window.automation
-    page.preset_combo.setCurrentText("Stellarwave Melody")
-    page._apply_preset()
+    page = window.fishing
+    idx = page.rod_combo.findText("Stellarwave Melody")
+    page._apply_rod(idx)
     assert window.ctx.profile.minigame.kind == "stellarwave"

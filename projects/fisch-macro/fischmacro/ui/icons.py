@@ -7,6 +7,16 @@ from PySide6.QtCore import QByteArray, QRectF, Qt
 from PySide6.QtGui import QIcon, QImage, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
+from fischmacro.ui.lucide import LUCIDE
+
+# page / feature name -> Lucide icon
+ALIASES = {
+    "dashboard": "layout-dashboard", "fishing": "fish", "addons": "puzzle", "hunts": "crosshair",
+    "vision": "scan-search", "calibration": "scan-search", "profiles": "layers", "settings": "sliders-horizontal",
+    "logs": "scroll-text", "hotkeys": "keyboard", "sovereign": "crown", "totem": "cloud-sun", "appraise": "gem",
+    "potion": "flask-conical", "astral": "telescope", "lullaby": "music-4", "rod": "anchor", "alerts": "bell", "cast": "zap", "minigame": "music-4",
+}
+
 _PATHS = {
     "dashboard": '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/>'
                  '<rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
@@ -42,10 +52,11 @@ _PATHS = {
 
 @lru_cache(maxsize=256)
 def icon(name: str, color: str = "#E6E7EE", size: int = 20, fill: bool = False) -> QIcon:
-    body = _PATHS.get(name, _PATHS["alert"])
+    key = ALIASES.get(name, name)
+    body = LUCIDE.get(key) or _PATHS.get(name) or _PATHS["alert"]
     fill_attr = color if fill else "none"
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="{fill_attr}" stroke="{color}" '
-           f'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{body}</svg>')
+           f'stroke-width="{1.9 if key in LUCIDE else 1.8}" stroke-linecap="round" stroke-linejoin="round">{body}</svg>')
     renderer = QSvgRenderer(QByteArray(svg.encode()))
     scale = 2  # crisp on high-DPI screens
     img = QImage(size * scale, size * scale, QImage.Format_ARGB32_Premultiplied)

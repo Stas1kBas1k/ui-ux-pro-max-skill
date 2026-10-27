@@ -89,8 +89,8 @@ def test_engine_builds_readers_from_settings():
     st = AppSettings()
     eng = AutomationEngine(st, Profile())
     assert [w.kind for w in eng.active_watchers()] == []
-    st.hunts.watched = ["Megalodon", "Kraken"]
-    st.hunts.custom = ["My Event"]
+    st.hunts.watched = ["Megalodon", "Kraken", "My Event"]
+    st.hunts.custom = ["My Event", "Not ticked"]
     st.addons.totem.enabled = True
     st.addons.sovereign.enabled = True
     st.rod_detect.enabled = True

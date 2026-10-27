@@ -540,7 +540,7 @@ class AutomationEngine:
 
     def _on_watch_match(self, w, matches, text, image) -> None:
         msg = f"{w.name}: {', '.join(matches)}"
-        self._event("watcher", msg + (f' - "{text[:100]}"' if text else ""))
+        self._event("watcher" if w.toast else "info", msg + (f' - "{text[:100]}"' if text else ""))
         if w.notify_discord:
             self.notifier.send(f"{w.name} detected", f"**{', '.join(matches)}**\n> {text[:300]}", image=image,
                                key=f"{w.name}:{'|'.join(matches)}", min_gap=60)
@@ -555,7 +555,7 @@ class AutomationEngine:
         """Screen readers the current settings need: hunts, world readout, rod power, rod name."""
         st, out = self.settings, [w for w in self.settings.watchers if w.enabled]
         h = st.hunts
-        names = list(dict.fromkeys(h.watched + h.custom))
+        names = list(dict.fromkeys(h.watched))
         if names:
             out.append(Watcher("Hunts", enabled=True, kind="hunt", region=h.region, keywords="|".join(names),
                                interval_s=3, cooldown_min=10, notify_discord=h.discord, toast=h.toast,

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QMessageBox, QPushButton
 
 from fischmacro import __version__, paths
 from fischmacro.automation.engine import Status
+from fischmacro.ui.components import FlowLayout
 from fischmacro.ui.fancy import ThemeCard
 from fischmacro.ui.icons import icon
 from fischmacro.ui.theme import THEMES
@@ -35,14 +36,13 @@ class SettingsPage(QWidget):
 
         look = Card("Appearance", "Pick a theme and a text size that are comfortable for you. "
                                   "The window refreshes instantly; nothing else is interrupted.")
-        gallery = QGridLayout()
-        gallery.setSpacing(12)
-        for i, name in enumerate(THEMES):
+        gallery_w = QWidget()
+        gallery = FlowLayout(gallery_w, 12)
+        for name in THEMES:
             card = ThemeCard(name, name == s.appearance.theme)
             card.clicked.connect(self._pick_theme)
-            gallery.addWidget(card, i // 6, i % 6)
-        gallery.setColumnStretch(6, 1)
-        look.add(gallery)
+            gallery.addWidget(card)
+        look.add(gallery_w)
         self.look_form = ConfigForm(s.appearance, exclude=["theme"])
         self.look_form.changed.connect(self._appearance_changed)
         look.add(self.look_form)
@@ -67,7 +67,7 @@ class SettingsPage(QWidget):
         f.changed.connect(ctx.settings_edited)
         perf.add(f)
         row.addWidget(perf, 1)
-        inp = Card("Input timing", "Controller sensitivity is tuned per profile on the Automation page.")
+        inp = Card("Input timing", "How long clicks and key presses are held, and how they are sent.")
         f = ConfigForm(s.input)
         f.changed.connect(self._input_changed)
         inp.add(f)

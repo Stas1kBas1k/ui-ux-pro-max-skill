@@ -10,7 +10,7 @@ import argparse
 import copy
 from dataclasses import dataclass, field
 
-from fischmacro.automation.fsm import FishingStateMachine, State
+from fischmacro.automation.fsm import FishingStateMachine
 from fischmacro.input.controller import InputController
 from fischmacro.profiles.schema import Profile
 from fischmacro.simulation.game import SimulatedFischGame, SimulatedInputBackend

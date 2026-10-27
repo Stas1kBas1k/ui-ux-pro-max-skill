@@ -6,7 +6,7 @@ from PySide6.QtCore import QByteArray, QEvent, QSize, Qt, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
-    QPushButton, QStackedWidget, QVBoxLayout, QWidget,
+    QPushButton, QStackedWidget, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from fischmacro import APP_NAME, __version__
@@ -19,9 +19,10 @@ from fischmacro.ui.calibration import CalibrationWindow
 from fischmacro.ui.fancy import ToastManager, asset_pixmap
 from fischmacro.ui.icons import icon
 from fischmacro.ui.overlay import DebugOverlay
-from fischmacro.ui.pages.alerts import AlertsPage
+from fischmacro.ui.pages.addons import AddonsPage
 from fischmacro.ui.pages.automation import AutomationPage
-from fischmacro.ui.pages.routines import RoutinesPage
+from fischmacro.ui.pages.fishing import FishingPage
+from fischmacro.ui.pages.hunts import HuntsPage
 from fischmacro.ui.picker import ScreenPicker
 from fischmacro.ui.pages.dashboard import DashboardPage
 from fischmacro.ui.pages.hotkeys import HotkeysPage
@@ -78,9 +79,9 @@ class RiskDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
-    NAV = [("dashboard", "Dashboard"), ("automation", "Automation"), ("vision", "Computer Vision"),
-           ("profiles", "Profiles"), ("routines", "Routines"), ("alerts", "Alerts & Watchers"), ("hotkeys", "Hotkeys"),
-           ("settings", "Settings"), ("logs", "Logs & Statistics")]
+    NAV = [("dashboard", "Dashboard"), ("fishing", "Fishing"), ("addons", "Add-ons"), ("hunts", "Hunts"),
+           ("calibration", "Calibration"), ("profiles", "Profiles"), ("settings", "Settings"), ("logs", "Logs & Stats")]
+    CALIBRATION = 4
 
     def __init__(self, ctx):
         super().__init__()
@@ -108,16 +109,20 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
 
         self.dashboard = DashboardPage(ctx)
-        self.automation = AutomationPage(ctx)
+        self.fishing = FishingPage(ctx, self.pick_region, lambda: AutomationPage(ctx))
+        self.addons = AddonsPage(ctx, self.pick_region, self.pick_point)
+        self.hunts = HuntsPage(ctx, self.pick_region)
         self.vision = VisionPage(ctx)
         self.profiles = ProfilesPage(ctx)
-        self.routines = RoutinesPage(ctx, self.pick_point)
-        self.alerts = AlertsPage(ctx, self.pick_region)
         self.hotkeys = HotkeysPage(ctx)
         self.settings = SettingsPage(ctx)
+        self.settings_hub = QTabWidget()
+        self.settings_hub.setObjectName("settingsHub")
+        self.settings_hub.addTab(self.settings, "General")
+        self.settings_hub.addTab(self.hotkeys, "Hotkeys")
         self.logs = LogsPage(ctx)
-        for page in (self.dashboard, self.automation, self.vision, self.profiles, self.routines, self.alerts,
-                     self.hotkeys, self.settings, self.logs):
+        for page in (self.dashboard, self.fishing, self.addons, self.hunts, self.vision, self.profiles,
+                     self.settings_hub, self.logs):
             self.stack.addWidget(page)
 
         self.dashboard.start_requested.connect(self.start_automation)
@@ -126,7 +131,7 @@ class MainWindow(QMainWindow):
         self.dashboard.risk_requested.connect(self._review_risk)
         self.dashboard.preview_requested.connect(self._start_preview)
         self.dashboard.calibrate_requested.connect(self.toggle_calibration)
-        self.dashboard.vision_requested.connect(lambda: self.select_page(2))
+        self.dashboard.vision_requested.connect(lambda: self.select_page(self.CALIBRATION))
         self.dashboard.autocal_requested.connect(self._start_autocal)
         self.vision.calibrate_requested.connect(self.toggle_calibration)
         self.vision.snapshot_requested.connect(self.diagnostic_snapshot)
@@ -264,7 +269,7 @@ class MainWindow(QMainWindow):
                 if n.desktop_notifications:
                     self.tray.notify("Fisch Macro", msg)
             elif kind == "watcher":
-                self.toast("Watcher", msg, C["primary_hi"])
+                self.toast("Hunt spotted" if msg.startswith("Hunts:") else "Spotted", msg, C["primary_hi"])
                 if n.desktop_notifications:
                     self.tray.notify("Fisch Macro", msg)
             elif kind == "autocal":
@@ -367,11 +372,11 @@ class MainWindow(QMainWindow):
         self.ensure_acknowledged()
 
     def _start_autocal(self) -> None:
-        self.select_page(2)
+        self.select_page(self.CALIBRATION)
         self.ctx.engine.start_autocalibration()
 
     def _start_preview(self) -> None:
-        self.select_page(2)
+        self.select_page(self.CALIBRATION)
         if self.ctx.engine.status == Status.STOPPED:
             self.ctx.engine.start_vision()
 
@@ -472,7 +477,7 @@ class MainWindow(QMainWindow):
 
     def on_profile_switched(self) -> None:
         self._fill_profiles()
-        self.automation.on_profile_switched()
+        self.fishing.on_profile_switched()
         self.vision.on_profile_switched()
         self.profiles.on_profile_switched()
         self.hotkeys.update_view()
@@ -492,10 +497,6 @@ class MainWindow(QMainWindow):
         self.vision.refresh(s, self.stack.currentWidget() is self.vision)
         if self.stack.currentWidget() is self.logs:
             self.logs.poll_log()
-        elif self.stack.currentWidget() is self.alerts:
-            self.alerts.refresh()
-        elif self.stack.currentWidget() is self.routines:
-            self.routines.refresh()
         if self.overlay.isVisible():
             game_rect = (*s.preview.screen_origin, *s.preview.client_size) if s.preview is not None else None
             self.overlay.update_state(s, self.ctx.profile, game_rect)

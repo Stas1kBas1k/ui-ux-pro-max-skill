@@ -7,13 +7,13 @@ feedback controller.
 
 ![Dashboard while fishing (simulation mode)](docs/screenshots/dashboard.png)
 
-| Computer Vision page | Calibration tool |
+| **Fishing** (cast, shake, tracking, rod, Lullaby mode) | **Add-ons** (Sovereign, Totem, Appraise, Potion, Astral) |
 |---|---|
-| ![Live preview with detections and the reel tracker](docs/screenshots/vision.png) | ![Dragging regions over a frozen screenshot](docs/screenshots/calibration.png) |
-| **Setup checklist** | **Themes** (Deep Ocean, Arctic Light, ...) |
-| ![First-run checklist](docs/screenshots/checklist.png) | ![Theme gallery](docs/screenshots/settings-themes.png) |
-| **Routines** (potions, totems, recharge, appraise) | **Alerts & Watchers** (hunts, weather, Discord) |
-| ![Routine editor](docs/screenshots/routines.png) | ![Watchers and Discord](docs/screenshots/alerts.png) |
+| ![Fishing page](docs/screenshots/fishing.png) | ![Add-ons page](docs/screenshots/addons.png) |
+| **Hunts** (pick from the catalogue, or type one to add) | **Auto Appraise** (stop on the traits you pick) |
+| ![Hunt catalogue](docs/screenshots/hunts.png) | ![Auto Appraise](docs/screenshots/appraise.png) |
+| **Calibration** (auto-calibrate, live preview) | **Manual calibration tool** |
+| ![Calibration page](docs/screenshots/vision.png) | ![Dragging regions over a frozen screenshot](docs/screenshots/calibration.png) |
 
 > **Account risk.** Third-party automation can break Roblox's Terms of Use or Fisch's rules and may get your
 > account restricted. Fisch Macro does **not** read game memory, inject code or bypass anti-cheat. It only
@@ -24,7 +24,7 @@ feedback controller.
 ## Contents
 
 - [Features](#features)
-- [Rod minigames, routines and alerts](#rod-minigames-routines-and-alerts)
+- [Fishing, add-ons and hunts](#fishing-add-ons-and-hunts)
 - [Install and launch](#install-and-launch)
 - [First-run setup](#first-run-setup)
 - [Testing in Roblox Fisch](#testing-in-roblox-fisch)
@@ -110,8 +110,8 @@ feedback controller.
 - Auto reconnect (*experimental*).
 
 **App**
-- Pages: Dashboard, Automation, Computer Vision, Profiles, Routines, Alerts & Watchers, Hotkeys, Settings,
-  Logs & Statistics.
+- Pages: Dashboard, Fishing, Add-ons, Hunts, Calibration, Profiles, Settings (with Hotkeys), Logs & Stats.
+  Every number and colour is still there for fine tuning, behind the *Advanced* buttons.
 - A **"Get ready for Fisch" checklist** on the dashboard tracks real setup progress: risk notice, game window
   found, reel calibrated, colours sampled, minigame seen in the live preview, first live catch. Each step has a
   button that jumps to the right place. Hide it once you're set up; it can be shown again from Settings.
@@ -124,62 +124,45 @@ feedback controller.
   milestones.
 - A **simulation mode** that runs the whole loop against a built-in model of the game, with no real input.
 
-## Rod minigames, routines and alerts
+## Fishing, add-ons and hunts
 
-### Rod-specific minigames (*Automation → Rod minigame*)
+### Fishing page
 
-The catch bar keeps following the fish while these run. Switch off *Keep following the fish* to play only
-the rod minigame.
+Plain dropdowns for the choices that matter: **Cast mode** (Perfect / Normal / Timed), **Shake mode**
+(Click / Navigation), **Tracking** (Standard / Precision for tryhard and low-resilience rods), your **Rod**
+(loads its preset), and **Detect rod automatically**.
+
+**Rod minigame.** The catch bar keeps following the fish while these run (switch off *Also follow the fish*
+to play only the rod minigame).
 
 | Rod | What the app does | Status |
 |---|---|---|
-| **Lullaby** | Clicks when the swinging pendulum is over a lit section. Presses Q a set number of times per catch to pick a mode (Strengthening / Fortuitous / Serene Hymn). | Solver hits 100% in the simulator when *Input lead* matches the input delay. Tune *Input lead* in game. |
-| **Stellarwave Melody** | Finds the star sign you must match and clicks the matching one on the wheel. | Shape matching worked on every simulated wheel. Calibrate the two regions and sign colour in game. |
-| **Halibut Harpoon** | Clicks marked targets. | Experimental: what the player must click needs confirming. |
+| **Lullaby** | Pick the **Lullaby mode** (Resistant Composition, Quickening Symphony, Strengthening Melody, Fortuitous Harmony, Prismatic Sinfonia, Serene Hymn, or *Keep current*). Between catches the app presses Q until that mode's name is on screen. While reeling it clicks only when the pendulum is over a lit section, once per section, and waits out the first 1.2 s of each catch (clicks there count for nothing in game). | Rules from the Fisch wiki; solver verified in the simulator. Tune *Click early by* in game. |
+| **Stellarwave Melody** | Finds the star sign you must match and clicks the matching one on the wheel. | Verified in the simulator. Calibrate the two regions in game. |
+| **Halibut Harpoon** | Clicks marked targets. | Experimental. |
 | **Pinion's Aria, Migurod, other tryhard rods** | Precision tracking with a larger safety margin. | Same tracker as above. |
 
-Presets apply automatically when a rod is detected, or from *Automation → Rod & equipment → Apply rod preset*.
+### Add-ons page
 
-### Routines (*Routines* page)
+Each add-on is a card: tick it to turn it on, click it to see its settings. They act only between catches.
 
-Step lists for items, run only between catches. Steps can be:
-- use item (by hotbar slot from your loadout, or by typing its name into the inventory search),
-- press key, type text, click a point,
-- click a button by its text (OCR),
-- wait, or wait for text.
+| Add-on | What it does |
+|---|---|
+| **Auto Sovereign Recharge** | Reads the rod's *Sovereign Power* % from the screen. Below *Recharge below* (90) it uses relics until *Charge up to* (99). Needs the gamepass enchant. **Verify in game.** |
+| **Auto Totem** | Reads the **World** (weather, time of day, surge) and uses the matching totem when it differs from what you picked: the weather totem to hold, a surge totem (Shiny / Sparkling / Mutation), or the Sundial Totem for Day / Night. Waits between uses. |
+| **Auto Appraise** | Re-rolls the held fish at the Appraiser NPC or with the gamepass until it has any trait you ticked (24 traits, or type your own), up to *Stop after* tries. |
+| **Auto Potion / Astral Activator** | Uses the item on a timer. |
+| **Items & inventory** | Which hotbar slot holds what. Anything else is found by typing its name in the inventory search. |
 
-*Repeat until text* keeps going until a word appears, e.g. a mutation when appraising. Triggers can be every
-N minutes, every N catches, a watcher match, or manual (*Run now*). All presets start **disabled** and are
-marked **verify in game**, because the exact Fisch buttons need checking:
-- luck potion,
-- totem,
-- Astral Activator,
-- Sovereign recharge with an Enchant Relic (gamepass),
-- auto appraise (gamepass),
-- appraiser NPC.
+### Hunts page
 
-Set up the **Loadout** once: which item is in which hotbar slot, the inventory key, and where the search box
-and first result are. Use the *Pick on screen* buttons.
+Click hunts in the catalogue (Megalodon, Kraken, Sovereign Surge, Scylla, ... 60 in total) or type one and
+press **Add**. When a ticked hunt is announced on screen (read with offline OCR) you get a Discord message
+(if a webhook is set in *Settings*), a pop-up, and optionally a pause so you can come back and go for it.
 
-### Alerts & Watchers (*Alerts & Watchers* page)
-
-Watchers read a screen region with offline OCR every few seconds. Presets:
-- Hunts (Megalodon, Great White, Great Hammerhead, Whale Shark, ...),
-- Weather,
-- Server events (Lucky Pool, Nuke, Lunar Eclipse, ...),
-- Rod charge,
-- Rod name.
-
-On a match a watcher can:
-- show a toast or tray notification,
-- send a **Discord** message (paste a webhook URL; text only unless you enable screenshots),
-- trigger routines (e.g. pop a potion when an event starts),
-- pause fishing, so you can come back and take part in a hunt.
-
-**Automatic rod and skin profiles.** The *Rod name* watcher reads the equipped rod. A new rod gets its own
-profile, with the matching rod preset. A known rod switches back to its profile. When a new skin on an
-already-calibrated rod changes the minigame colours, the adapted colours are saved as a separate *"(skin N)"*
-profile, so your original profile stays intact. Switches only happen between catches.
+**Automatic rod and skin profiles.** With *Detect rod automatically* on, the app reads the equipped rod. A new
+rod gets its own profile with the matching preset; a known rod switches back to its profile. A new skin on an
+already-calibrated rod gets a separate *"(skin N)"* profile. Switches only happen between catches.
 
 ### Technology choices
 
@@ -188,7 +171,8 @@ profile, so your original profile stays intact. Switches only happen between cat
 | UI | PySide6 (Qt 6) | Native, fast, themable, high-DPI aware, LGPL |
 | Vision | OpenCV + NumPy | Fast colour masks, connected components, template matching |
 | Capture | MSS | Small, fast GDI capture of a sub-rectangle; no admin rights |
-| Input + global hotkeys | pynput | Standard `SendInput` and low-level keyboard hook; no drivers |
+| Input | Win32 `SendInput` with hardware scan codes | Roblox reads keys by scan code; no drivers, no injection |
+| Global hotkeys | pynput | Low-level keyboard hook |
 | Storage | JSON (settings, profiles), SQLite (statistics) | Human-editable config, robust stats |
 | Text recognition | RapidOCR (ONNX Runtime) | Offline OCR bundled with the app; reads hunts, weather and rod names |
 | Packaging | PyInstaller (one-folder) | Standalone `.exe`, quick start-up |
@@ -262,7 +246,7 @@ and between versions.
 1. Launch Roblox Fisch windowed, stand at the water with a rod equipped.
 2. Launch Fisch Macro, check *Settings → Capture source* = `window`.
 3. Calibrate (step 5 above) and confirm detection with the live preview (step 6).
-4. Enable the **Session limits** module (*Automation → Modules*) with *Stop after 5 catches* for the first test.
+4. Enable the **Session limits** module (*Fishing → Advanced → Modules*) with *Stop after 5 catches* for the first test.
 5. Click into Roblox and press **F6**. Watch the Dashboard (or turn on the debug overlay with F9).
 6. If the reel bar overshoots or lags behind the fish, tune the reel controller (below) and try again.
 7. Check *Logs & Statistics*. Catches should be *confirmed*. Many *unconfirmed* catches mean the progress bar
@@ -270,7 +254,7 @@ and between versions.
 
 ## Tuning
 
-**Reel controller** (*Automation → Reeling*, saved per profile, so make one profile per rod):
+**Reel controller** (*Fishing → Advanced → Reeling*, saved per profile, so make one profile per rod):
 
 | Symptom | Change |
 |---|---|
@@ -315,7 +299,9 @@ once.
 | Hotkeys do nothing in game | The status bar must say *Global hotkeys on*. Security software can block keyboard hooks. Run Roblox and the app at the same privilege level. |
 | Clicks do not register in Roblox | Keep *Nudge cursor before clicks* on. Raise *Click hold* to 40–60 ms. |
 | Regions are off after changing resolution or UI scale | Re-calibrate. Regions are relative, but Roblox's UI does not scale linearly with every setting. |
-| Watchers never match | Check *Alerts & Watchers*: the live line shows what OCR read. Re-pick the region so it tightly covers the text. |
+| Casts but never reels | Open *Calibration*, press *Auto-calibrate* and catch one fish by hand. "Reel bar: Seen (bar unclear)" means the fish is followed but the bar colour is off - auto-calibrate fixes that. |
+| Keys (shake navigation, hotbar) do nothing | Keep *Input method* on *Scan codes* (Fishing → Input). The navigation key must match Roblox's *UI Navigation Toggle*. |
+| Hunts / weather / power never read | Re-pick the area with *Pick on screen* so the box tightly covers the text. |
 | Rod profile switches to the wrong rod | Edit *Rod name* in each profile to the exact name OCR reads, or turn off *Automatic rod profiles*. |
 | Many "unconfirmed" outcomes | Calibrate the progress bar region and colour, or add a catch-popup template. |
 | Too many recoveries / error stop | Save an F11 snapshot and compare *annotated.png* with the game. Usually a colour or region needs adjusting. |
@@ -414,8 +400,8 @@ Verified in this repository (automated tests, run on Linux and in the Windows CI
 - Behaviour after Fisch UI updates. Auto-adapt handles colour changes; re-run Auto-calibrate after layout changes.
 - Rod minigames: the Lullaby lead time, Stellarwave region and sign colour, and whether Halibut Harpoon targets
   need clicking at all.
-- Routine presets (button names for Sovereign recharge, appraising, the inventory key) and watcher regions.
-  They are templates marked *verify in game*.
+- Add-ons: the Sovereign gamepass recharge flow, the appraise button names, the inventory key, and where
+  the power and world readouts appear on screen. They are marked *verify in game*.
 
 ## Privacy and safety
 

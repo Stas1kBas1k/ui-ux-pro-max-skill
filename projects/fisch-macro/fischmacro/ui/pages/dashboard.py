@@ -5,14 +5,19 @@ import time
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QGridLayout, QHBoxLayout, QListWidget, QListWidgetItem, QProgressBar, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QHBoxLayout, QListWidget, QListWidgetItem, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from fischmacro.automation.engine import EngineSnapshot, Status
-from fischmacro.ui.fancy import CycleTimeline, HeroBanner
+from fischmacro.ui.fancy import HeroBanner
 from fischmacro.ui.icons import icon
 from fischmacro.ui.theme import C, EVENT_COLORS, STATE, STATUS_COLORS
-from fischmacro.ui.widgets import Card, StatTile, StatusDot, label
+from fischmacro.ui.components import RowGroup, StatStrip, section_title
+from fischmacro.ui.widgets import StatusDot, label
+
+STEP_NAMES = {"IDLE": "Idle", "CASTING": "Casting", "WAITING_FOR_BITE": "Waiting for a bite", "SHAKE": "Shaking",
+              "REELING": "Reeling", "CATCH_CONFIRMED": "Caught - next cast", "RECOVERY": "Recovering",
+              "ERROR": "Stopped on an error"}
 
 
 def fmt_duration(seconds: float) -> str:
@@ -112,46 +117,31 @@ class DashboardPage(QWidget):
         self.error_banner.hide()
         root.addWidget(self.error_banner)
 
-        # --- tiles
-        grid = QGridLayout()
-        grid.setSpacing(12)
-        self.t_state = StatTile("Automation state", "IDLE", C["primary_hi"])
-        self.t_game = StatTile("Detected game state", "-")
-        self.t_time = StatTile("Session time", "0:00:00")
-        self.t_fps = StatTile("Detection FPS", "-")
-        self.t_catch = StatTile("Catches", "0", C["success"])
-        self.t_fail = StatTile("Failures", "0", C["danger_hi"])
-        self.t_unconf = StatTile("Unconfirmed", "0", C["warning"])
-        self.t_rate = StatTile("Catches / hour", "-", C["accent"])
-        tiles = [self.t_state, self.t_game, self.t_time, self.t_fps, self.t_catch, self.t_fail, self.t_unconf, self.t_rate]
-        for i, t in enumerate(tiles):
-            grid.addWidget(t, i // 4, i % 4)
-        root.addLayout(grid)
-
+        # --- session numbers in one strip, then what the macro sees, then the activity log
         bottom = QHBoxLayout()
         bottom.setSpacing(16)
         left = QVBoxLayout()
-        left.setSpacing(16)
-        conf = Card("Detection confidence", "How sure the vision engine is about what it sees right now.")
-        self.conf_bar = QProgressBar()
-        self.conf_bar.setRange(0, 100)
-        self.conf_bar.setFormat("%p%")
-        conf.add(self.conf_bar)
-        self.conf_detail = label("", "faint", wrap=True)
-        conf.add(self.conf_detail)
-        self.held_lbl = label("Held inputs: none", "faint")
-        conf.add(self.held_lbl)
-        left.addWidget(conf)
-        tl = Card("Cycle timeline", "Each bar is one fishing cycle this session; taller bars took longer.")
-        self.timeline = CycleTimeline()
-        tl.add(self.timeline)
-        left.addWidget(tl)
+        left.setSpacing(8)
+        left.addWidget(section_title("This session"))
+        self.strip = StatStrip([("catches", "Caught"), ("failed", "Escaped"), ("rate", "Per hour"), ("time", "Time")])
+        left.addWidget(self.strip)
+        left.addSpacing(8)
+        left.addWidget(section_title("Right now"))
+        g = RowGroup()
+        self.v_step = g.add_value("Step", "What the macro is doing")
+        self.v_game = g.add_value("Game", "What it sees on screen")
+        self.v_track = g.add_value("Fish tracking", "How sure it is about the fish and the bar")
+        self.v_input = g.add_value("Holding", "Mouse buttons and keys held right now")
+        left.addWidget(g)
+        left.addStretch(1)
         bottom.addLayout(left, 3)
-        act = Card("Recent activity")
+        right = QVBoxLayout()
+        right.setSpacing(8)
+        right.addWidget(section_title("Recent activity"))
         self.activity = QListWidget()
         self.activity.setMinimumHeight(260)
-        act.add(self.activity)
-        bottom.addWidget(act, 2)
+        right.addWidget(self.activity, 1)
+        bottom.addLayout(right, 2)
         root.addLayout(bottom, 1)
         self.add_events(list(ctx.activity))  # history survives theme changes
 
@@ -200,33 +190,17 @@ class DashboardPage(QWidget):
         self.error_banner.setText(f"Stopped: {s.last_error}" if s.last_error else "")
 
         self.checklist.refresh(s)
-        self.t_state.set(s.fsm_state.replace("_", " "))
-        self.t_game.set(s.game_state)
         sess = s.session
         running = st in (Status.RUNNING, Status.PAUSED)
-        self.t_time.set(fmt_duration(sess.active_seconds) if (running or sess.cycles) else "0:00:00",
-                        f"{sess.cycles} cycles, avg {sess.avg_cycle:.1f}s" if sess.cycles else "")
-        self.t_catch.set(str(sess.catches), f"{sess.perfect_casts}/{sess.casts} perfect casts" if sess.casts else "")
-        self.t_fail.set(str(sess.failures), f"{sess.recoveries} recoveries" if sess.recoveries else "")
-        self.t_unconf.set(str(sess.unconfirmed), "calibrate the progress bar" if sess.unconfirmed else "")
-        decided = sess.catches + sess.failures
-        self.t_rate.set(f"{sess.catches_per_hour:.0f}" if sess.catches_per_hour else "-",
-                        f"{sess.catches / decided:.0%} success rate" if decided else "")
-        self.t_fps.set(f"{s.fps:.0f}" if st != Status.STOPPED else "-",
-                       f"{s.process_ms:.1f} ms per frame" if st != Status.STOPPED else "")
-        self.timeline.set_cycles(sess.history)
+        self.strip.set("catches", str(sess.catches), C["success"])
+        self.strip.set("failed", str(sess.failures), C["danger_hi"] if sess.failures else None)
+        self.strip.set("rate", f"{sess.catches_per_hour:.0f}" if sess.catches_per_hour else "-")
+        self.strip.set("time", fmt_duration(sess.active_seconds) if (running or sess.cycles) else "0:00:00")
+        self.v_step.setText(STEP_NAMES.get(s.fsm_state, s.fsm_state.replace("_", " ").title()))
+        self.v_game.setText(s.game_state if st != Status.STOPPED else "---")
         obs = s.observation
-        if obs is not None and st != Status.STOPPED:
-            self.conf_bar.setValue(int(obs.confidence() * 100))
-            parts = []
-            if obs.reel.ui_present:
-                parts.append(f"reel {obs.reel.confidence:.2f}")
-            if obs.shake.present:
-                parts.append(f"shake targets {len(obs.shake.targets)}")
-            if obs.cast.present:
-                parts.append(f"cast {obs.cast.fill:.0%}")
-            self.conf_detail.setText(", ".join(parts) or "No game element visible right now.")
+        if obs is not None and st != Status.STOPPED and obs.reel.ui_present:
+            self.v_track.setText(f"{obs.reel.confidence:.0%}" if obs.reel.bar_found else "fish only")
         else:
-            self.conf_bar.setValue(0)
-            self.conf_detail.setText("Vision is not running.")
-        self.held_lbl.setText("Held inputs: " + (", ".join(s.held_inputs) if s.held_inputs else "none"))
+            self.v_track.setText("---")
+        self.v_input.setText(", ".join(s.held_inputs) if s.held_inputs else "nothing")

@@ -4,12 +4,14 @@ import time
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QGridLayout, QHBoxLayout, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
+    QTabWidget, QVBoxLayout, QWidget,
 )
 
 from fischmacro.automation.engine import EngineSnapshot, Status
 from fischmacro.diagnostics.snapshot import annotate
 from fischmacro.profiles.schema import REGION_LABELS
+from fischmacro.ui.components import RowGroup, section_title
 from fischmacro.ui.icons import icon
 from fischmacro.ui.theme import C
 from fischmacro.ui.widgets import Card, ConfigForm, ImageView, ReelGraph, label, page_header
@@ -35,8 +37,14 @@ class VisionPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(28, 24, 28, 24)
         root.setSpacing(14)
-        root.addWidget(page_header("Computer Vision", "Live preview, calibration and detector readouts. "
-                                                      "Everything is processed locally on this PC."))
+        head = QHBoxLayout()
+        head.addWidget(page_header("Calibration", "Press Auto-calibrate, then catch one fish by hand - the macro finds "
+                                                  "the reel bar and its colours by itself. Nothing leaves this PC."), 1)
+        adv = QPushButton(icon("settings", C["muted"], 16), " Advanced")
+        adv.setToolTip("Screen regions, colours and tolerances")
+        adv.clicked.connect(self.open_advanced)
+        head.addWidget(adv, 0, Qt.AlignTop)
+        root.addLayout(head)
 
         bar = QHBoxLayout()
         self.preview_btn = QPushButton(icon("vision"), "  Start live preview")
@@ -47,11 +55,11 @@ class VisionPage(QWidget):
         self.auto_btn.setToolTip("Watches the screen while you fish once and finds the reel bar and its colours by itself.")
         self.auto_btn.clicked.connect(self._toggle_autocal)
         bar.addWidget(self.auto_btn)
-        cal = QPushButton(icon("crosshair"), "  Manual calibration (F10)")
+        cal = QPushButton(icon("crosshair"), "  Manual (F10)")
         cal.clicked.connect(self.calibrate_requested)
-        snap = QPushButton(icon("camera"), "  Diagnostic snapshot (F11)")
+        snap = QPushButton(icon("camera"), "  Snapshot (F11)")
         snap.clicked.connect(self.snapshot_requested)
-        self.overlay_chk = QCheckBox("Debug overlay (F9)")
+        self.overlay_chk = QCheckBox("Overlay (F9)")
         self.overlay_chk.toggled.connect(self.overlay_toggled)
         for w in (self.preview_btn, cal, snap):
             bar.addWidget(w)
@@ -69,12 +77,12 @@ class VisionPage(QWidget):
         self.view = ImageView("Preview stopped - press 'Start live preview'")
         self.view.setMinimumSize(560, 315)
         left.addWidget(self.view, 1)
-        tracker = Card("Reel tracker", "Red: fish. White: catch bar. Dashed cyan: predicted fish. Purple: hold duty.")
+        tracker = Card("Reel tracker", "Red: fish. White: catch bar. Purple: how long the mouse is held.")
         self.graph = ReelGraph()
         tracker.add(self.graph)
         row = QHBoxLayout()
-        self.hover_lbl = label("Hover duty: not learned yet - it is learned while reeling.", "faint")
-        self.hover_btn = QPushButton(icon("check"), "  Save learned hover duty to profile")
+        self.hover_lbl = label("Bar balance: learned while reeling.", "faint")
+        self.hover_btn = QPushButton(icon("check"), "  Save to profile")
         self.hover_btn.setEnabled(False)
         self.hover_btn.clicked.connect(self._save_hover)
         row.addWidget(self.hover_lbl, 1)
@@ -84,40 +92,42 @@ class VisionPage(QWidget):
         main.addLayout(left, 3)
 
         right = QVBoxLayout()
-        right.setSpacing(14)
-        det = Card("Detections")
-        self.det_grid = QGridLayout()
-        self.det_grid.setVerticalSpacing(6)
+        right.setSpacing(8)
+        right.addWidget(section_title("What it sees"))
+        g = RowGroup()
         self._det = {}
-        for i, (k, cap) in enumerate([("window", "Game window"), ("state", "Game state"), ("reel", "Reel bar"),
-                                      ("fish", "Fish / bar"), ("progress", "Progress"), ("shake", "Shake targets"),
-                                      ("cast", "Cast power"), ("disc", "Error dialog"), ("perf", "Performance")]):
-            self.det_grid.addWidget(label(cap, "muted"), i, 0)
-            v = label("-")
-            v.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            self.det_grid.addWidget(v, i, 1)
-            self._det[k] = v
-        det.add(self.det_grid)
-        right.addWidget(det)
+        for k, cap, hint in [("window", "Game window", "Roblox must be open"), ("state", "Game state", ""),
+                             ("reel", "Reel bar", ""), ("fish", "Fish", ""), ("progress", "Catch progress", ""),
+                             ("shake", "Shake buttons", ""), ("cast", "Cast power", ""), ("perf", "Speed", "")]:
+            self._det[k] = g.add_value(cap, hint)
+        self._det["disc"] = label("")  # error dialog state is shown in the game state row
+        right.addWidget(g)
+        right.addStretch(1)
+        main.addLayout(right, 2)
+        root.addLayout(main)
 
-        reg = Card("Screen regions", "Normalised to the game client area, so they survive resizing and DPI changes.")
+        # advanced: regions and colour tuning, in a dialog
+        self.adv_dlg = QDialog(self)
+        self.adv_dlg.setWindowTitle("Advanced calibration")
+        self.adv_dlg.resize(900, 720)
+        dv = QVBoxLayout(self.adv_dlg)
+        tabs = QTabWidget()
+        dv.addWidget(tabs, 1)
         self.reg_table = QTableWidget(0, 3)
         self.reg_table.setHorizontalHeaderLabels(["Region", "On", "x, y, w, h"])
         self.reg_table.verticalHeader().setVisible(False)
         self.reg_table.horizontalHeader().setStretchLastSection(True)
-        self.reg_table.setMinimumHeight(240)
         self.reg_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        reg.add(self.reg_table)
-        right.addWidget(reg)
-        main.addLayout(right, 2)
-        root.addLayout(main)
-
-        tune = Card("Detection tuning", "Colours and tolerances per detector. Use the calibration tool's colour "
-                                        "picker to sample colours straight from the game.")
+        tabs.addTab(self.reg_table, "Screen regions")
         self.form = ConfigForm(ctx.profile.detection)
         self.form.changed.connect(ctx.profile_edited)
-        tune.add(self.form)
-        root.addWidget(tune)
+        fs = QScrollArea()
+        fs.setWidgetResizable(True)
+        fs.setWidget(self.form)
+        tabs.addTab(fs, "Colours && tolerances")
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(self.adv_dlg.reject)
+        dv.addWidget(bb)
         self.refresh_regions()
 
     # ------------------------------------------------------------------
@@ -129,6 +139,10 @@ class VisionPage(QWidget):
             eng.stop_vision()
             self.view.set_image(None)
             self.view.setText("Preview stopped")
+
+    def open_advanced(self) -> None:
+        self.refresh_regions()
+        self.adv_dlg.exec()
 
     def refresh_regions(self) -> None:
         p = self.ctx.profile
@@ -180,28 +194,30 @@ class VisionPage(QWidget):
         d = self._det
         if st == Status.STOPPED:
             for v in d.values():
-                v.setText("-")
+                v.setText("---")
+                v.setStyleSheet("")
             self.graph.set_data(None, False)
             return
-        d["window"].setText(("found" if s.window_found else "NOT FOUND") + (" (simulation)" if s.simulated else
-                            ", focused" if s.window_focused else ", not focused"))
-        d["window"].setStyleSheet(f"color: {C['success'] if s.window_found else C['danger']};")
+        ok, bad = C["success"], C["danger"]
+        d["window"].setText("Simulation" if s.simulated else
+                            ("Found, focused" if s.window_focused else "Found, click into it") if s.window_found
+                            else "Not found")
+        d["window"].setStyleSheet(f"color: {ok if s.window_found and (s.window_focused or s.simulated) else bad};")
         d["state"].setText(s.game_state)
         if obs is not None:
             r = obs.reel
-            d["reel"].setText(f"{'visible' if r.ui_present else 'not visible'}  conf {r.confidence:.2f}")
-            d["fish"].setText(f"fish {r.fish_x:.3f}  bar {r.bar_left:.3f}-{r.bar_right:.3f}" if r.present else "-")
-            d["progress"].setText(f"{obs.progress.fill:.0%} (conf {obs.progress.confidence:.2f})" if obs.progress.present else "-")
-            d["shake"].setText(", ".join(f"({t.x:.2f},{t.y:.2f}) {t.confidence:.2f}" for t in obs.shake.targets[:3]) or "none")
-            d["cast"].setText(f"{obs.cast.fill:.0%} (conf {obs.cast.confidence:.2f})" if obs.cast.present else "-")
-            d["disc"].setText("DETECTED" if obs.disconnect.detected else "no")
-            d["disc"].setStyleSheet(f"color: {C['danger'] if obs.disconnect.detected else C['text']};")
+            d["state"].setText("Error dialog on screen" if obs.disconnect.detected else s.game_state)
+            d["reel"].setText(("Seen" if r.bar_found else "Seen (bar unclear)") if r.ui_present else "Not seen")
+            d["fish"].setText(f"Tracked at {r.fish_x:.0%}" if r.fish_found and r.ui_present else "---")
+            d["progress"].setText(f"{obs.progress.fill:.0%}" if obs.progress.present else "---")
+            d["shake"].setText(str(len(obs.shake.targets)) if obs.shake.targets else "none")
+            d["cast"].setText(f"{obs.cast.fill:.0%}" if obs.cast.present else "---")
             self.graph.set_data(s.reel if st == Status.RUNNING else None, r.present and st == Status.RUNNING)
         learned = self.ctx.engine.fsm.reel.hover.value
         self.hover_btn.setEnabled(learned is not None)
         if learned is not None and not self.hover_lbl.text().startswith("Saved"):
-            self.hover_lbl.setText(f"Learned hover duty {learned:.2f} (profile: {self.ctx.profile.reel.hold_bias:.2f})")
-        d["perf"].setText(f"{s.fps:.0f} fps, capture {s.capture_ms:.1f} ms, vision {s.process_ms:.1f} ms")
+            self.hover_lbl.setText(f"Bar balance learned: {learned:.2f} (profile has {self.ctx.profile.reel.hold_bias:.2f})")
+        d["perf"].setText(f"{s.fps:.0f} fps")
 
         now = time.monotonic()
         interval = 1.0 / max(1, self.ctx.settings.performance.preview_fps)

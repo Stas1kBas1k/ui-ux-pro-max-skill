@@ -97,9 +97,10 @@ def _arrow_files() -> dict[str, str]:
     folder = paths.data_dir() / "ui-cache"
     folder.mkdir(parents=True, exist_ok=True)
     col = C["muted"]
-    shapes = {"up": "M4 10 8 6l4 4", "down": "M4 6l4 4 4-4"}
+    shapes = {"up": ("M4 10 8 6l4 4", col), "down": ("M4 6l4 4 4-4", col),
+              "check": ("M3.5 8.5 6.5 11.5 12.5 4.5", C["on_primary"])}
     out = {}
-    for name, d in shapes.items():
+    for name, (d, col) in shapes.items():
         f = folder / f"chevron-{name}-{col.lstrip('#')}.svg"
         if not f.exists():
             f.write_text(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="{col}" '
@@ -127,6 +128,7 @@ QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-butto
 QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image: url("{arrows['up']}"); width: 11px; height: 11px; }}
 QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ image: url("{arrows['down']}"); width: 11px; height: 11px; }}
 QComboBox::down-arrow {{ image: url("{arrows['down']}"); width: 12px; height: 12px; }}
+QCheckBox#square::indicator:checked {{ image: url("{arrows['check']}"); }}
 """
     return f"""
 * {{ font-family: {FONT_STACK}; font-size: {pt(10)}; color: {c['text']}; }}
@@ -243,4 +245,38 @@ QMenu {{ background: {c['card_hi']}; border: 1px solid {c['border_hi']}; padding
 QMenu::item {{ padding: 6px 18px; border-radius: 6px; }}
 QMenu::item:selected {{ background: {c['primary']}; color: {c['on_primary']}; }}
 QMessageBox, QDialog {{ background: {c['card']}; }}
+
+/* add-on cards and setting rows */
+QFrame#addon {{ background: {c['card']}; border: 1px solid {c['border']}; border-radius: 16px; }}
+QFrame#addon[open="true"] {{ border-color: {c['border_hi']}; }}
+QWidget#addonHead, QWidget#addonBody, QWidget#row {{ background: transparent; }}
+QLabel#addonTitle {{ font-size: {pt(11.5)}; font-weight: 700; background: transparent; }}
+QLabel#addonDesc {{ color: {c['muted']}; background: transparent; }}
+QLabel#sectionTitle {{ color: {c['faint']}; font-size: {pt(8)}; font-weight: 700; letter-spacing: 1.1px;
+                       background: transparent; padding-left: 2px; }}
+QFrame#rowGroup {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 12px; }}
+QTabWidget#settingsHub::tab-bar {{ left: 22px; }}
+QTabWidget#settingsHub > QTabBar::tab {{ margin-top: 12px; }}
+QFrame#vSep {{ background: {c['border']}; max-width: 1px; min-width: 1px; margin: 4px 0; }}
+QLabel#stripValue {{ font-size: {pt(17)}; font-weight: 800; background: transparent; }}
+QFrame#rowSep {{ background: {c['border']}; max-height: 1px; min-height: 1px; margin: 0 14px; }}
+QLabel#rowTitle {{ font-weight: 600; background: transparent; }}
+QLabel#rowHint {{ color: {c['faint']}; font-size: {pt(9)}; background: transparent; }}
+QLabel#rowValue {{ color: {c['text']}; font-weight: 700; background: transparent; font-size: {pt(10.5)}; }}
+QPushButton#chevron {{ background: transparent; border: 1px solid transparent; border-radius: 9px; padding: 0; }}
+QPushButton#chevron:hover {{ background: {c['card_hi']}; border-color: {c['border']}; }}
+QCheckBox#square {{ spacing: 0; background: transparent; }}
+QCheckBox#square::indicator {{ width: 20px; height: 20px; border-radius: 6px; background: {c['surface']};
+                               border: 1.5px solid {c['border_hi']}; }}
+QCheckBox#square::indicator:hover {{ border-color: {c['primary']}; }}
+QCheckBox#square::indicator:checked {{ background: {c['primary']}; border-color: {c['primary']}; }}
+QSpinBox#number {{ padding: 6px 8px; font-weight: 700; }}
+QSpinBox#number::up-button, QSpinBox#number::down-button {{ width: 0; border: none; }}
+QSpinBox#number::up-arrow, QSpinBox#number::down-arrow {{ image: none; width: 0; height: 0; }}
+QComboBox#dotCombo {{ padding: 6px 10px; }}
+QLineEdit#search {{ padding: 9px 11px; border-radius: 11px; }}
+QPushButton#chip {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 15px;
+                    padding: 6px 13px 6px 10px; font-weight: 600; color: {c['muted']}; }}
+QPushButton#chip:hover {{ border-color: {c['border_hi']}; color: {c['text']}; }}
+QPushButton#chip:checked {{ background: {rgba(c['primary'], 0.16)}; border-color: {c['primary']}; color: {c['text']}; }}
 """ + arrow_css
