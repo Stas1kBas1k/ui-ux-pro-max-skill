@@ -34,6 +34,7 @@ class TimingResult:
     pointer: float = 0.0                       # normalised to the track region
     segments: list[tuple[float, float]] = field(default_factory=list)
     confidence: float = 0.0
+    source: str = ""                           # "gauge" = Lullaby's half-moon (no section change on a hit)
 
     def inside(self, x: float, margin: float = 0.0) -> bool:
         return any(a + margin <= x <= b - margin for a, b in self.segments)

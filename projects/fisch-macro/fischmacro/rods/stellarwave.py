@@ -1,46 +1,47 @@
-"""Stellarwave Melody sign clicker (AIM -> VERIFY state machine). Off by default: how a sign is
-picked in game is not confirmed (see docs/REPAIR_REPORT.md)."""
+"""Stellarwave Melody: pick the zodiac signs in order (Aries..Pisces) by clicking them on the reel strip.
+
+Seen in the player's recording: the cursor goes onto the next sign and its star lights up; picked signs
+turn white; signs can be anywhere on the strip, inside or outside the bar. The reel itself is "click and
+hold anywhere", so the cursor is free: it is kept on the next sign, so the normal reel presses land on it
+too, and a short extra tap is made when it arrives. A pick counts when one more star is lit.
+
+States: AIM (move onto the next sign and tap) -> VERIFY (wait for the star) -> AIM. A tap that lit
+nothing is retried a little later; a low-confidence match is never clicked.
+"""
 from __future__ import annotations
 
+VERIFY_S = 0.7      # a star lights up within this time after a good click
+RETRY_GAP_S = 0.5
 
 
-def update(s, obs: Observation, now: float) -> None:
-    """Click the sign on the bar that matches the one asked for, then check the click worked: the sign
-    asked for changes after a correct click. A wrong click marks that sign and the next best one is
-    tried; after 3 tries the target is left alone until it changes (no spamming)."""
-    m = obs.match
-    if not m.target_present or len(m.options) < 2:
-        if s.stellar_state == "VERIFY" and now - s.last_fire > 0.9:
-            s.stellar_state = "AIM"
+def update(s, obs, now: float) -> None:
+    z = obs.zodiac
+    if z is None or not z.found:
         return
+    if s.stellar_lit is not None and z.lit > s.stellar_lit:
+        s.hits += 1
+        s._note(now, f"stellar: {z.lit} sign(s) picked")
+        s.stellar_state, s.stellar_tries = "AIM", 0
+    s.stellar_lit = z.lit
     if s.stellar_state == "VERIFY":
-        if m.signature != s.done_signature:
-            s.hits += 1
-            s._note(now, f"stellar hit ({s.hits})")
-            s.stellar_state, s.stellar_rejected, s.stellar_tries = "AIM", [], 0
-        elif now - s.last_fire >= 0.6:
-            s.misses += 1
-            s._note(now, f"stellar miss at x={s.stellar_rejected[-1]:.3f}")
-            s.stellar_state = "AIM" if s.stellar_tries < 3 else "GAVE_UP"
-        else:
+        if now - s.last_fire < VERIFY_S:
             return
-    if s.stellar_state == "GAVE_UP":
-        if m.signature == s.done_signature:
-            return
-        s.stellar_state, s.stellar_rejected, s.stellar_tries = "AIM", [], 0
-    if m.signature != s.done_signature:
-        s.stellar_rejected, s.stellar_tries = [], 0
-    if now - s.last_fire < s.cfg.min_interval:
+        s.misses += 1
+        s._note(now, f"stellar: click on {z.next_sign} not counted - retrying")
+        s.stellar_state = "AIM"
+    if not z.confident:
         return
-    options = [o for o in m.options if all(abs(o.x - x) > 0.01 for x in s.stellar_rejected)]
-    if not options:
+    # keep the cursor on the next sign (the reel's own presses then pick it as well)
+    inp, f = s.fsm.input, s.fsm
+    if obs is not None and f.last_obs is not None:
+        x, y = f._screen(obs, z.x, z.y)
+        if s.stellar_cursor is None or abs(s.stellar_cursor[0] - x) > 6 or abs(s.stellar_cursor[1] - y) > 6:
+            inp.move_to(x, y)
+            s.stellar_cursor = (x, y)
+    if now - s.last_fire < RETRY_GAP_S or s.stellar_tries >= 6:
         return
-    best = max(options, key=lambda o: o.score)
-    # near ties (similar-looking signs) are fine: the click is checked, and a wrong one is not repeated
-    if best.score >= s.cfg.match_threshold:
-        s.last_fire = now
-        s.done_signature = m.signature
-        s.stellar_rejected.append(best.x)
-        s.stellar_tries += 1
-        s.stellar_state = "VERIFY"
-        s._act((best.x, best.y))
+    s.last_fire = now
+    s.stellar_tries += 1
+    s.stellar_state = "VERIFY"
+    s._note(now, f"stellar: tap {z.next_sign} at ({z.x:.3f}, {z.y:.3f}) score {z.score:.2f}")
+    s._act()  # tap where the cursor is, keeping the reel's hold state

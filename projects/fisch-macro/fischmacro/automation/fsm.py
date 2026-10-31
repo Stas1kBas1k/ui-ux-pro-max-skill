@@ -386,7 +386,12 @@ class FishingStateMachine:
             # steer on the tracked fish and bar: a wrong detection is ignored and a missed frame or two is
             # bridged by the prediction, instead of letting go of the bar the moment one frame is unclear
             c.last_fish = now
-            hold = self.reel.update(ts.fish_x, ts.bar_left, ts.bar_right, now,
+            aim = ts.fish_x
+            if mini.kind == "migu" and obs.reel.marks:
+                # MiguRod: slashes land on the "!" marks and cut the bar - step the bar aside if the fish allows
+                from fischmacro.vision.reel_edges import dodge_aim
+                aim = dodge_aim(ts.fish_x, ts.bar_left, ts.bar_right, list(obs.reel.marks))
+            hold = self.reel.update(aim, ts.bar_left, ts.bar_right, now,
                                     max(ts.confidence, cfg.min_confidence), self.min_switch_interval)
             if hold:
                 # Lullaby: a press off-beat costs -5% progress, so wait for a lit section while the fish is

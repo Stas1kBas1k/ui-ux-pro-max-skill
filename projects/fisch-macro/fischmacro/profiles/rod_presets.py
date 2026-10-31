@@ -25,10 +25,11 @@ PRESETS: list[RodPreset] = [
               "Metronome: clicks only when the pendulum is over a lit section (every click off a section costs "
               "5% progress, so the bar is left alone). Pick the mode on the Fishing page."),
     RodPreset("Stellarwave Melody", ("stellarwave",),
-              {"minigame.kind": "none", "minigame.keep_reeling": True},
-              "The reel bar is made of zodiac signs (shuffled every catch) with the fixed Aries..Pisces row "
-              "above it. The macro reels it (checked on real screenshots); picking signs is not automated yet "
-              "because how a sign is picked has not been confirmed."),
+              {"minigame.kind": "stellarwave", "minigame.keep_reeling": True, "detection.reel_mode": "capsule"},
+              "Zodiac strip: reels the bright capsule bar, and picks the signs in order (Aries..Pisces) by "
+              "keeping the cursor on the next sign and clicking it; each pick is checked by its star lighting "
+              "up. Built from a real recording; works with skins because the signs are matched against the "
+              "top row of the same screen."),
     RodPreset("Halibut Harpoon", ("halibut", "harpoon"),
               {"minigame.kind": "halibut", "minigame.keep_reeling": True},
               "Harpoons land on spots marked '!' and add progress while the fish is in the bar. Nothing is "

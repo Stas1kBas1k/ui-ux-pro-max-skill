@@ -28,7 +28,7 @@ def test_every_rod_gets_its_own_behaviour(lib):
     kinds = {r: lib.load_or_create(r, DEFAULT_SKIN, Profile())[0].minigame.kind
              for r in ("Lullaby", "MiguRod", "Halibut Harpoon", "Carbon Rod", "Stellarwave Melody")}
     assert kinds == {"Lullaby": "lullaby", "MiguRod": "migu", "Halibut Harpoon": "halibut", "Carbon Rod": "none",
-                     "Stellarwave Melody": "none"}
+                     "Stellarwave Melody": "stellarwave"}
 
 
 def test_unknown_rod_falls_back_to_standard_reeling(lib):

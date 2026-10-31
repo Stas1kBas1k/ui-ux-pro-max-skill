@@ -19,7 +19,7 @@ STATE_REGIONS: dict[str, tuple[str, ...]] = {
     "CASTING": ("cast", "reel"),
     "WAITING_FOR_BITE": ("shake", "reel"),
     "SHAKE": ("shake", "reel"),
-    "REELING": ("reel", "progress", "catch_popup", "mini", "mini_target"),
+    "REELING": ("reel", "progress", "catch_popup", "mini", "mini_target", "reel_wide"),
     "CATCH_CONFIRMED": ("reel", "catch_popup"),
     "RECOVERY": ("reel", "shake", "disconnect", "reconnect_button"),
     "ERROR": ("reel", "disconnect"),
@@ -44,6 +44,7 @@ class Observation:
     timing: mg.TimingResult = field(default_factory=mg.TimingResult)
     match: mg.MatchResult = field(default_factory=mg.MatchResult)
     targets: mg.TargetsResult = field(default_factory=mg.TargetsResult)
+    zodiac: object = None                 # Stellarwave: ZodiacObs (next sign and where it is on the strip)
     prompt_image: object = None           # crop around a rod event, for reading its key prompt (MiguRod)
     frozen_seconds: float = 0.0
     checked: tuple[str, ...] = ()
@@ -83,6 +84,11 @@ class VisionEngine:
         self._shake_ref: np.ndarray | None = None
         self._shake_ref_t = -1e9
         self.adaptive = AdaptiveReel()
+        from fischmacro.vision.shake_verify import ShakeVerifier
+        self.shake_verifier = ShakeVerifier()
+        from fischmacro.vision.lullaby_gauge import LullabyGauge
+        self.lullaby_gauge = LullabyGauge()
+        self.verify_shake = True  # read the word before a shake click (off in the simulator: no real text)
 
     def regions_for(self, state: str) -> tuple[str, ...]:
         return STATE_REGIONS.get(state, ALL_DETECTORS)
@@ -132,6 +138,18 @@ class VisionEngine:
             obs.reel = d.detect_reel(crop, cfg)
             if getattr(cfg, "fish_any_colour", True):
                 obs.reel = self._pick_reel(obs.reel, self.adaptive.update(crop))
+            shape_ok = getattr(cfg, "fish_any_colour", True)  # colour-only profiles skip the shape readers
+            if not shape_ok:
+                pass
+            elif cfg.reel_mode == "capsule" and (rw := region("reel_wide")):
+                self._capsule_reel(frame, obs, r, rw)
+            else:
+                self._refine_fish(frame, obs, r)
+                if p.minigame.kind == "migu" and obs.reel.ui_present and crop is not None:
+                    from fischmacro.vision.reel_edges import find_marks
+                    rr = obs.reel
+                    obs.reel.marks = tuple(find_marks(crop, rr.fish_x if rr.fish_found else None,
+                                                      (rr.bar_left, rr.bar_right) if rr.bar_found else None))
             checked.append("reel")
         if "progress" in wanted and (r := region("progress")):
             pcrop = frame.crop(r)
@@ -142,6 +160,9 @@ class VisionEngine:
         if "shake" in wanted and (r := region("shake")):
             obs.shake = d.detect_shake(frame, r, cfg, self.templates, exclude=self._shake_ref)
             obs.shake.targets = [t for t in obs.shake.targets if t.confidence >= cfg.min_confidence]
+            if self.verify_shake and obs.shake.targets and not cfg.shake_template:
+                obs.shake.targets = self.shake_verifier.filter(frame.image, obs.shake.targets, frame.client_size,
+                                                                origin=frame.origin)
             self._update_shake_reference(frame, r, state, obs.shake.present)
             checked.append("shake")
         if "cast" in wanted and (r := region("cast")):
@@ -162,6 +183,9 @@ class VisionEngine:
                 obs.timing = mg.detect_migu(acrop)
                 if obs.timing.present:
                     obs.prompt_image = acrop
+            elif mcfg.kind == "lullaby" and (rr := region("reel")) and \
+                    (g := self._lullaby_gauge(frame, rr)).present:
+                obs.timing = g
             elif mcfg.kind == "lullaby":
                 mcrop = frame.crop(r)
                 obs.timing = mg.detect_timing(mcrop, mcfg.pointer_color, mcfg.pointer_tolerance,
@@ -170,8 +194,8 @@ class VisionEngine:
                     auto = mg.detect_timing_auto(mcrop, mcfg.axis)
                     if auto.present:
                         obs.timing = auto
-            elif mcfg.kind == "stellarwave" and (t := region("mini_target")):
-                obs.match = mg.detect_match(frame, t, r, mcfg.symbol_color, mcfg.symbol_tolerance)
+            elif mcfg.kind == "stellarwave" and (rw := region("reel_wide")):
+                obs.zodiac = self._zodiac(frame, rw)
             elif mcfg.kind == "targets":
                 obs.targets = mg.detect_targets(frame, r, mcfg.target_color, mcfg.target_tolerance)
             checked.append("mini")
@@ -183,6 +207,91 @@ class VisionEngine:
         obs.checked = tuple(checked)
         obs.processing_ms = (time.perf_counter() - t0) * 1000
         return obs
+
+    def _zodiac(self, frame: Frame, rw: Region):
+        """Stellarwave: which sign is next (lit stars in the top row) and where it is on the strip."""
+        from fischmacro.vision.zodiac import SIGNS, ZodiacObs, find_on_strip, read_row
+        z = ZodiacObs()
+        row_r = Region(rw.x, max(0.0, rw.y - 0.24), rw.w, 0.22)
+        strip_r = Region(rw.x, max(0.0, rw.y - 0.02), rw.w, rw.h + 0.043)
+        row_img, strip = frame.crop(row_r), frame.crop(strip_r)
+        if row_img is None or strip is None:
+            return z
+        row = read_row(row_img)
+        if not row.found:
+            return z
+        z.found, z.lit = True, row.lit
+        if row.lit >= 12:
+            return z
+        z.next_sign = SIGNS[row.lit]
+        hit = find_on_strip(strip, row.templates[row.lit])
+        if hit is None:
+            return z
+        cw, ch = frame.client_size
+        sx, sy, sw, sh = strip_r.to_rect(cw, ch)
+        scale_x = sw / strip.shape[1]
+        z.x, z.y = (sx + hit.x * scale_x) / cw, (sy + hit.y * scale_x) / ch
+        z.score, z.margin = hit.score, hit.score - hit.second
+        return z
+
+    def _lullaby_gauge(self, frame: Frame, reel: Region):
+        """Lullaby's half-moon metronome sits on the middle of the reel's top edge."""
+        cw, ch = frame.client_size
+        cx = (reel.x + reel.w / 2) * cw - frame.origin[0]
+        cy = reel.y * ch - frame.origin[1]
+        return self.lullaby_gauge.update(frame.image, (cx, cy), ch)
+
+    @staticmethod
+    def _tall(region: Region) -> Region:
+        """The same columns with rows above and below: only the fish line continues there."""
+        return Region(region.x, max(0.0, region.y - 0.6 * region.h), region.w, region.h * 2.2)
+
+    def _refine_fish(self, frame: Frame, obs: Observation, r: Region) -> None:
+        """The fish is the strongest thin line crossing the track and continuing past it. MiguRod's '!' marks
+        and slash effects fooled the colour/shape fish finder (player recording, 29.5 s); this one checks the
+        line continues beyond the track."""
+        if not obs.reel.ui_present:
+            return
+        tall = frame.crop(self._tall(r))
+        if tall is None:
+            return
+        from fischmacro.vision.reel_edges import edge_strength, find_fish
+        f = edge_strength(cv2.GaussianBlur(tall, (3, 1), 0))
+        ff = find_fish(f, tall.shape[1], tall)
+        if ff is None or ff[1] < 0.6:
+            return
+        rr = obs.reel
+        if rr.fish_found and self.profile.minigame.kind != "migu":
+            return  # the first finder was right on every normal reel of the recording; marks are a MiguRod thing
+        if rr.fish_found and abs(rr.fish_x - ff[0]) > 0.02:
+            # keep the first answer if it is a line that also continues past the track (a real fish line);
+            # replace it only when it does not (a mark or effect standing on the track)
+            w = tall.shape[1]
+            c, k = int(rr.fish_x * w), max(4, int(0.015 * w))
+            if float(f[max(0, c - k):c + k + 1].max()) >= 0.6 * max(1e-6, float(f[max(0, int(ff[0] * w) - k):
+                                                                                 int(ff[0] * w) + k + 1].max())):
+                return
+        if not rr.fish_found or abs(rr.fish_x - ff[0]) > 0.02:
+            rr.fish_found, rr.fish_x, rr.fish_confidence = True, ff[0], max(rr.fish_confidence, ff[1])
+
+    def _capsule_reel(self, frame: Frame, obs: Observation, r: Region, rw: Region) -> None:
+        """Stellarwave: a strip of zodiac signs with a bright capsule as the bar (checked on the player's
+        recording: bar edges within 16 px, fish within 3 px). Results are put in the normal reel's terms."""
+        wide, tall = frame.crop(rw), frame.crop(self._tall(rw))
+        if wide is None or tall is None:
+            return
+        from fischmacro.vision.reel_adaptive import bright_bar
+        from fischmacro.vision.reel_edges import edge_strength, find_fish
+        w = wide.shape[1]
+        ff = find_fish(edge_strength(cv2.GaussianBlur(tall, (3, 1), 0)), w, tall)
+        bb = bright_bar(wide, ff[0] if ff else None)
+        if bb is None:
+            return
+        to_reel = lambda f: (rw.x + f * rw.w - r.x) / r.w  # noqa: E731
+        rr = obs.reel
+        rr.ui_present, rr.bar_found, rr.fish_found = True, True, True
+        rr.fish_x, rr.fish_confidence = to_reel(bb.fish_x), bb.fish_confidence
+        rr.bar_left, rr.bar_right, rr.bar_confidence = to_reel(bb.bar_left), to_reel(bb.bar_right), bb.bar_confidence
 
     @staticmethod
     def _pick_reel(colour: d.ReelResult, shape: d.ReelResult) -> d.ReelResult:

@@ -45,6 +45,8 @@ class MinigameSolver:
         self.fired_segment: tuple[float, float] | None = None  # Lullaby: section already clicked this pass
         # Stellarwave state machine: AIM -> VERIFY -> (target changed: hit) AIM / (no change: miss) AIM
         self.stellar_state = "AIM"
+        self.stellar_lit: int | None = None
+        self.stellar_cursor: tuple[int, int] | None = None
         self.stellar_rejected: list[float] = []  # x of signs already tried (wrong) for the current target
         self.stellar_tries = 0
         self.hits = 0

@@ -45,6 +45,7 @@ def run_simulation(profile: Profile | None = None, *, seed: int = 0, difficulty:
     result = SimResult(game=game)
     inputs = InputController(SimulatedInputBackend(game), click_hold_ms=0, key_hold_ms=0, mouse_nudge=False)
     engine = VisionEngine(profile)
+    engine.verify_shake = False  # the simulated button is drawn, not real text; reading is tested on real images
 
     def emit(kind, msg, **data):
         result.events.append((kind, msg))

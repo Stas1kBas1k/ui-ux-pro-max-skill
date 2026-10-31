@@ -169,6 +169,7 @@ class AutomationEngine:
                 raise RuntimeError("Stop automation before switching profiles")
             self.profile = profile
             self.vision = VisionEngine(profile)
+            self.vision.verify_shake = not self.simulated
             self.fsm = self._new_fsm()
 
     def set_preview(self, wanted: bool) -> None:
@@ -180,6 +181,7 @@ class AutomationEngine:
             if self._threads:
                 return
             self.source = self._make_source()
+            self.vision.verify_shake = not self.source.simulated
             self.inputs.release_all()
             self.inputs = self._make_inputs()
             self.fsm = self._new_fsm()
@@ -522,7 +524,9 @@ class AutomationEngine:
         self._capture_failures = 0
         running = self._status == Status.RUNNING
         state = self.fsm.state.value if running else "IDLE"
-        wanted = self.vision.regions_for(state) if (running and not frame.full) else None
+        # while fishing, full frames (preview / periodic checks) run the same detectors as cropped ones plus the
+        # disconnect check; leaving the rod minigame out of them reset Lullaby's pendulum history every time
+        wanted = (tuple(dict.fromkeys(self.vision.regions_for(state) + ("disconnect",))) if running else None)
         obs = self.vision.process(frame, wanted, state if running else None)
         message = ""
         self._autocal_tick(frame, obs, now)
@@ -665,6 +669,7 @@ class AutomationEngine:
         with self._lock:
             self.profile = p
             self.vision = VisionEngine(p)
+            self.vision.verify_shake = not self.simulated
             f = self.fsm
             f.profile = p
             f.reel = ReelController(p.reel)

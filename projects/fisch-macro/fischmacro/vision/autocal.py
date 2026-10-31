@@ -121,7 +121,12 @@ def find_reel(frames: list[np.ndarray]) -> tuple[tuple[int, int, int, int] | Non
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(4, h // 90))))
     best, best_score = None, 0.0
     for x, y, bw, bh, area in _components(mask, (max(3, w // 40), 3)):
-        if bw < 0.12 * w or bw > 0.9 * w or bh < 3 or bw / max(1, bh) < 5:
+        if bw >= 0.12 * w and bh >= 3 and bw / max(1, bh) < 5:
+            # the fish line sticks out above and below the track and can join the strip to the progress bar
+            # under it: judge the shape on the busiest rows only (the track)
+            y, bh = _tighten_rows(mask, x, y, bw, bh)
+            area = int((mask[y:y + bh, x:x + bw] > 0).sum())
+        if bw < 0.12 * w or bw > 0.9 * w or bh < 3 or bw / max(1, bh) < 4:
             continue
         fill = area / float(bw * bh)
         score = bw / w * min(1.0, fill * 2)

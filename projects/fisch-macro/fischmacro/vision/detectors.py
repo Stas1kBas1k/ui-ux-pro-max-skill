@@ -50,6 +50,7 @@ class ReelResult:
     fish_confidence: float = 0.0
     bar_confidence: float = 0.0
     bar_found: bool = False       # False with ui_present = fish seen on the track but the bar was not
+    marks: tuple = ()             # MiguRod "!" marks on the track (where slashes will land), reel fractions
 
     @property
     def present(self) -> bool:
@@ -333,6 +334,21 @@ def shake_color_mask(crop: np.ndarray, cfg: DetectionConfig) -> np.ndarray:
     return color_mask(crop, cfg.shake_color, cfg.shake_tolerance)
 
 
+def _looks_like_one_word(mask: np.ndarray) -> bool:
+    """SHAKE: 4-6 separate letters of about the same height, side by side on one line. Rejects icons, star
+    rows, single glyphs and long lines of text (announcements, chat, "Click & Hold Anywhere!")."""
+    n, _, st, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    h = mask.shape[0]
+    letters = [s for s in st[1:] if s[3] >= 0.55 * h and s[4] >= 4]
+    if not 4 <= len(letters) <= 7:
+        return False
+    hs = [s[3] for s in letters]
+    if max(hs) > 1.35 * min(hs):
+        return False
+    ws = [s[2] for s in letters]
+    return max(ws) <= 2.2 * float(np.median(ws))
+
+
 def dark_buttons(crop: np.ndarray, min_frac: float, max_frac: float) -> list[tuple[float, float, float, float, float]]:
     """Fisch's SHAKE button: light text (the word) on a dark, see-through disc. Returns (cx, cy, w, h, conf)
     in pixels. Found from the word: a short, wide cluster of light letters with dark all around it, so it
@@ -349,6 +365,8 @@ def dark_buttons(crop: np.ndarray, min_frac: float, max_frac: float) -> list[tup
     for i in range(1, n):
         x, y, bw, bh, _area = stats[i]
         if bh < 6 or not (2.0 <= bw / max(1, bh) <= 8.0):
+            continue
+        if not _looks_like_one_word(light[y:y + bh, x:x + bw]):
             continue
         r = 0.62 * bw  # the disc is a little wider than its label
         if not (min_frac <= np.pi * r * r / area_total <= max_frac):
@@ -388,6 +406,11 @@ def detect_shake(frame: Frame, region: Region, cfg: DetectionConfig, templates: 
             out.targets.append(Target((rx + cx) / cw, (ry + cy) / ch, tw / cw, th / ch, _clamp(score)))
         return out
 
+    if not getattr(cfg, "shake_by_colour", False):
+        for cx, cy, bw, bh, conf in dark_buttons(crop, cfg.shake_min_area, cfg.shake_max_area * 2):
+            out.targets.append(Target((rx + cx) / cw, (ry + cy) / ch, bw / cw, bh / ch, conf))
+        out.targets.sort(key=lambda t: -t.confidence)
+        return out
     raw = shake_color_mask(crop, cfg)
     k = max(3, int(round(min(w, h) * 0.01)) | 1)
     area_total = float(w * h)

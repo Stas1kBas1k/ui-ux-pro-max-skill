@@ -68,7 +68,8 @@ class AdaptiveReel:
         res = self._update(crop)
         if res.ui_present or crop is None or crop.size == 0 or crop.shape[1] < 40:
             return res
-        return bright_bar(crop) or res
+        sf = shape_fish(crop, (0, crop.shape[1]))
+        return bright_bar(crop, sf[0] if sf is not None and sf[1] >= 0.5 else None) or res
 
     def _update(self, crop: np.ndarray | None) -> ReelResult:
         res = ReelResult()
@@ -150,16 +151,29 @@ class AdaptiveReel:
         return res
 
 
-def bright_bar(crop: np.ndarray) -> ReelResult | None:
+def bright_bar(crop: np.ndarray, fish_x: float | None = None) -> ReelResult | None:
     """Fallback for reels whose empty track is not plain, e.g. Stellarwave, where zodiac glyphs fill the track:
     the catch bar is the long run of columns that are bright from top to bottom, while glyphs outside it
-    only cover part of each column. Used only when the track-based tracker found nothing."""
+    only cover part of each column. Only small gaps are bridged (a glyph right next to the bar is not part
+    of it), plus the gap where the fish line crosses the bar."""
     h, w = crop.shape[:2]
     g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)[int(h * 0.2):max(int(h * 0.2) + 1, int(h * 0.8))]
     t, _ = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     frac = (g > t).mean(axis=0)
-    # gaps up to 3% are bridged: the fish marker drawn over the bar splits it
-    runs = [r for r in _runs(frac >= 0.6, max_gap=max(2, int(0.03 * w))) if r[1] - r[0] >= 0.15 * w]
+    on = frac >= 0.6
+    if fish_x is not None:  # the fish line drawn over the bar may be dark: never let it split the bar
+        c = int(fish_x * w)
+        on[max(0, c - int(0.015 * w)):c + int(0.015 * w) + 1] |= True
+    runs = _runs(on, max_gap=max(2, int(0.008 * w)))
+    # bridge a gap that is not fully dark (an icon inside the bar); a fully dark gap separates the bar from
+    # a sign standing next to it
+    merged: list[list[int]] = []
+    for r0, r1 in runs:
+        if merged and r0 - merged[-1][1] <= 0.035 * w and float(frac[merged[-1][1]:r0].min()) >= 0.15:
+            merged[-1][1] = r1
+        else:
+            merged.append([r0, r1])
+    runs = [tuple(r) for r in merged if r[1] - r[0] >= 0.15 * w]
     if not runs:
         return None
     b0, b1 = max(runs, key=lambda r: r[1] - r[0])
@@ -169,7 +183,7 @@ def bright_bar(crop: np.ndarray) -> ReelResult | None:
     out = np.concatenate([frac[:b0], frac[b1:]])
     if inside < 0.7 or (out.size and float(out.mean()) > 0.35):
         return None
-    fish = shape_fish(crop, (0, w))
+    fish = shape_fish(crop, (0, w)) if fish_x is None else (fish_x, 1.0, 2)
     if fish is None or fish[1] < 0.5:
         return None
     res = ReelResult()

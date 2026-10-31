@@ -347,7 +347,7 @@ class MainWindow(QMainWindow):
         self._page_changed()
 
     def _page_changed(self) -> None:
-        self.ctx.engine.set_preview(self.current_page() is self.vision)
+        self.ctx.engine.set_preview(self.current_page() in (self.vision, self.diagnostics))
 
     def _restore_geometry(self) -> None:
         g = self.ctx.settings.window_geometry

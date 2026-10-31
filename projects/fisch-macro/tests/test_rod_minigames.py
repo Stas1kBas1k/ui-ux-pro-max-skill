@@ -50,7 +50,7 @@ def test_targets_detector():
     assert len(res.targets) == len(g._targets)
 
 
-@pytest.mark.parametrize("kind,action", [("lullaby", "e"), ("stellarwave", "click"), ("targets", "click")])
+@pytest.mark.parametrize("kind,action", [("lullaby", "e"), ("targets", "click")])
 def test_rod_minigame_solved_while_still_catching(kind, action):
     p = Profile()
     p.minigame.kind, p.minigame.action = kind, action
@@ -129,48 +129,54 @@ def _rod_game(kind, action="click", seed=3, gain=None):
     return g
 
 
-def test_stellarwave_clicks_signs_in_order_and_checks_each_click():
-    p = Profile()
-    p.minigame.kind = "stellarwave"
-    g = _rod_game("stellarwave")
-    res = run_simulation(p, game=g, cycles=3, max_time=300, fps=60)
-    assert res.outcomes.get("success", 0) == 3
-    assert g.stats.mini_hits >= 12, "goes through the zodiac order"
-    assert g.stats.mini_misses <= g.stats.mini_hits // 4
-    assert g.stats.mode_presses == 0
-
-
-def test_stellarwave_does_not_repeat_a_wrong_sign():
-    """Two signs look alike: after a wrong click the other one is tried, never the same one twice."""
+def _stellar_solver():
     from fischmacro.automation.minigame_solvers import MinigameSolver
-    from fischmacro.vision.engine import Observation
-    from fischmacro.vision.minigames import MatchOption
-
-    clicks = []
+    from fischmacro.input.controller import InputController, RecordingBackend
 
     class Fsm:
-        input = None
-        last_obs = None
+        input = InputController(RecordingBackend(), click_hold_ms=0)
+        last_obs = object()
 
         def _screen(self, obs, x, y):
-            return x, y
+            return int(x * 1920), int(y * 1080)
 
     s = MinigameSolver(Profile().minigame, Fsm())
     s.cfg.kind = "stellarwave"
-    s._act = lambda pos=None: clicks.append(pos)
-    obs = Observation()
-    obs.match.target_present, obs.match.signature = True, 111
-    obs.match.options = [MatchOption(0.40, 0.7, 0.90), MatchOption(0.45, 0.7, 0.89), MatchOption(0.5, 0.7, 0.7),
-                          MatchOption(0.55, 0.7, 0.6), MatchOption(0.6, 0.7, 0.1)]
+    return s, Fsm.input.backend
+
+
+def _zobs(lit, sign, x, score=0.7, margin=0.3):
+    from fischmacro.vision.engine import Observation
+    from fischmacro.vision.zodiac import ZodiacObs
+    o = Observation()
+    o.zodiac = ZodiacObs(found=True, lit=lit, next_sign=sign, x=x, y=0.87, score=score, margin=margin)
+    return o
+
+
+def test_stellarwave_picks_in_order_and_checks_each_pick():
+    """The real game (player recording): click the next sign, then its star lights up."""
+    s, back = _stellar_solver()
     t = 0.0
-    for _ in range(200):  # the target never changes: every click is wrong
-        s.update(obs, t)
-        t += 0.02
-    assert [c[0] for c in clicks] == [0.40, 0.45, 0.5][:len(clicks)] and len(clicks) == 3
-    assert s.stellar_state == "GAVE_UP"
-    obs.match.signature = 222  # next sign asked: starts again
-    s.update(obs, t)
-    assert len(clicks) == 4
+    s.update(_zobs(0, "Aries", 0.568), t)
+    assert ("move", 1090, 939) in back.events and s.stellar_state == "VERIFY"
+    t += 0.3
+    s.update(_zobs(1, "Taurus", 0.432), t)  # Aries' star lit: next sign
+    assert s.hits == 1
+    t += 0.3
+    s.update(_zobs(1, "Taurus", 0.432), t)
+    assert ("move", 829, 939) in back.events
+
+
+def test_stellarwave_retries_a_pick_that_did_not_count_and_never_clicks_unsure_matches():
+    s, back = _stellar_solver()
+    clicks = lambda: len([e for e in back.events if e[0] == "down"])  # noqa: E731
+    s.update(_zobs(0, "Aries", 0.5, score=0.41, margin=0.02), 0.0)  # two places look alike
+    assert clicks() == 0
+    t = 0.0
+    for _ in range(20):  # the star never lights: retried with gaps, at most 6 taps
+        s.update(_zobs(0, "Aries", 0.568), t)
+        t += 0.4
+    assert 2 <= clicks() <= 6 and s.misses >= 1
 
 
 def test_migu_presses_shift_once_per_timing_bar_in_the_middle():
@@ -220,7 +226,7 @@ def test_halibut_filter_needs_three_frames_to_believe_a_jump():
     assert seen == [0.50, 0.51, 0.51, 0.52, 0.53, 0.53, 0.53, 0.80]
 
 
-@pytest.mark.parametrize("rod,kind", [("Stellarwave Melody", "none"), ("Halibut Harpoon", "halibut"),
+@pytest.mark.parametrize("rod,kind", [("Stellarwave Melody", "stellarwave"), ("Halibut Harpoon", "halibut"),
                                       ("MiguRod", "migu")])
 def test_presets_pick_the_right_solver(rod, kind):
     p = Profile()

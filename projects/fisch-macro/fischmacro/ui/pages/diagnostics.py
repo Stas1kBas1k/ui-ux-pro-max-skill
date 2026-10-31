@@ -105,12 +105,21 @@ class DiagnosticsPage(QWidget):
         copy_btn.clicked.connect(self._copy)
         bar.addWidget(copy_btn)
         root.addLayout(bar)
+        from PySide6.QtWidgets import QSplitter
+        from PySide6.QtCore import Qt
+        from fischmacro.ui.widgets import ImageView
+        split = QSplitter(Qt.Vertical)
+        # live view: the game with what the macro detected and the inputs it sent drawn on top
+        self.live = ImageView("Live view appears while the game is being watched (press Start or Watch the game)")
+        split.addWidget(self.live)
         self.view = QTextBrowser()
         self.view.setObjectName("chat")
-        root.addWidget(self.view, 1)
+        split.addWidget(self.view)
+        split.setSizes([420, 300])
+        root.addWidget(split, 1)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
-        self.timer.start(500)
+        self.timer.start(250)
 
     def _observe(self, on: bool) -> None:
         self.ctx.settings.input.observe_only = on
@@ -123,7 +132,22 @@ class DiagnosticsPage(QWidget):
     def refresh(self) -> None:
         if not self.isVisible():
             return
+        self._refresh_live()
         bar = self.view.verticalScrollBar()
         pos = bar.value()
         self.view.setHtml(diagnostics_html(self.ctx.engine))
         bar.setValue(pos)
+
+    def _refresh_live(self) -> None:
+        eng = self.ctx.engine
+        snap = eng.snapshot()
+        if snap.preview is None or snap.preview_obs is None:
+            return
+        from fischmacro.diagnostics.replay import draw
+        back = eng.inputs.backend
+        recent = [w for t, w, sent, err in list(getattr(back, "recent", []))[-6:] if not w.startswith("move")]
+        img = snap.preview.image
+        try:
+            self.live.set_image(draw(img, eng.profile, snap.preview_obs, eng.fsm, recent, snap.preview.timestamp))
+        except Exception:  # noqa: BLE001 - a drawing problem must never break the page
+            self.live.set_image(img)

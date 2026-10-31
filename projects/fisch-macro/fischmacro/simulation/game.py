@@ -640,8 +640,9 @@ class SimulatedFischGame:
         img[y + 1:y + rh - 1, bx0:bx1] = (seg * (1 - a) + np.array(k["bar"], np.float32) * a).astype(np.uint8)
         fx = tx0 + int(self.fish_x * tw)
         fw = max(3, int(0.012 * tw))
-        cv2.rectangle(img, (fx - fw // 2 - 1, y + 1), (fx + fw // 2 + 1, y + rh - 2), k["outline"], -1)
-        cv2.rectangle(img, (fx - fw // 2 + 1, y + 2), (fx + fw // 2 - 1, y + rh - 3), k["fish"], -1)
+        ext = int(rh * 0.3)  # as in game, the fish line sticks out above and below the track
+        cv2.rectangle(img, (fx - fw // 2 - 1, y + 1 - ext), (fx + fw // 2 + 1, y + rh - 2 + ext), k["outline"], -1)
+        cv2.rectangle(img, (fx - fw // 2 + 1, y + 2 - ext), (fx + fw // 2 - 1, y + rh - 3 + ext), k["fish"], -1)
         c = self.colors
         px, py, pw, ph = self._rect("progress")
         cv2.rectangle(img, (px, py), (px + pw, py + ph), k["frame"], -1)
@@ -663,7 +664,8 @@ class SimulatedFischGame:
         cv2.rectangle(img, (bx0, y + inset), (bx1, y + rh - inset), hex_to_bgr(c.bar_color), -1)
         fw = max(3, int(0.022 * rw))
         fx = x + int(self.fish_x * rw)
-        cv2.rectangle(img, (fx - fw // 2, y + inset * 2), (fx + fw // 2, y + rh - inset * 2), hex_to_bgr(c.fish_color), -1)
+        ext = int(rh * 0.3)  # as in game, the fish line sticks out above and below the track
+        cv2.rectangle(img, (fx - fw // 2, y - ext), (fx + fw // 2, y + rh + ext), hex_to_bgr(c.fish_color), -1)
         px, py, pw, ph = self._rect("progress")
         cv2.rectangle(img, (px, py), (px + pw, py + ph), (40, 40, 40), -1)
         fill = int(pw * self.progress)

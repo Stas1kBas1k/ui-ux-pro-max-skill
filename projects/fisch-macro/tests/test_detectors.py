@@ -34,8 +34,14 @@ def test_reel_detection_matches_ground_truth(name):
 
 @pytest.mark.parametrize("name", ["shake_1280x720", "shake_1600x900"])
 def test_shake_button_found(name):
+    """Synthetic white buttons: only found by the old colour method, which is now opt-in (it also clicked the
+    Roblox player list in the real recording). The real SHAKE button is tested in test_recording.py."""
     frame, truth = load(name)
-    obs = VisionEngine(Profile()).process(frame)
+    p = Profile()
+    p.detection.shake_by_colour = True
+    e = VisionEngine(p)
+    e.verify_shake = False  # these drawn buttons carry no word to read
+    obs = e.process(frame)
     assert len(obs.shake.targets) == 1, "the bright cloud must be rejected, only the button found"
     t = obs.shake.targets[0]
     bx, by = truth["button"]

@@ -68,6 +68,7 @@ REGION_LABELS = {
     "reconnect_button": "Reconnect button",
     "mini": "Rod minigame area",
     "mini_target": "Rod minigame target sign",
+    "reel_wide": "Wide reel strip (Stellarwave)",
 }
 
 # Defaults approximate the Fisch layout at 16:9 and are expected to be calibrated.
@@ -82,6 +83,7 @@ DEFAULT_REGIONS = {
     # Rod-specific minigames (Lullaby track / Stellarwave options, and the sign to match)
     "mini": Region(0.30, 0.66, 0.40, 0.10),
     "mini_target": Region(0.46, 0.52, 0.08, 0.10),
+    "reel_wide": Region(0.21, 0.835, 0.58, 0.045),  # Stellarwave: the strip reaches past the normal reel
 }
 
 
@@ -105,6 +107,12 @@ class DetectionConfig:
     bar_min_width: float = opt(0.04, "Minimum bar width", "Relative to the reel region width.", min=0.01, max=0.9, step=0.01, decimals=2)
     progress_color: str = opt("#FFFFFF", "Progress fill colour", kind="color")
     progress_tolerance: int = opt(40, "Progress tolerance", min=0, max=128)
+    reel_mode: str = opt("standard", "Reel layout", "'standard' for plain tracks; 'capsule' for reels whose track is "
+                         "full of symbols and whose bar is a bright capsule (Stellarwave).",
+                         choices=["standard", "capsule"])
+    shake_by_colour: bool = opt(False, "Also find shake buttons by colour", "Old method: any patch of the shake colour "
+                                "counts as a button. It also clicks white text, icons and effects, and a wrong click "
+                                "reels the line in, so it is off. The SHAKE button itself is found by its word.")
     shake_color: str = opt("#F0F0F0", "Shake button colour", kind="color")
     shake_tolerance: int = opt(28, "Shake tolerance", min=0, max=128)
     shake_min_area: float = opt(0.0015, "Shake min area", "Fraction of the shake region.", min=0.0001, max=0.2, step=0.0005, decimals=4)
