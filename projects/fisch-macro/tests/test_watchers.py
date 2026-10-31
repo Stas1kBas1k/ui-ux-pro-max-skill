@@ -120,14 +120,14 @@ def ctx(tmp_path):
 
 
 def test_new_rod_creates_profile_with_preset(ctx):
-    ctx.handle_rod("Stellarwave Melody Rod")
-    assert ctx.profile.name.startswith("Stellarwave Melody Rod")
-    assert ctx.profile.minigame.kind == "stellarwave"
+    ctx.handle_rod("Lullaby Rod")
+    assert ctx.profile.name.startswith("Lullaby Rod")
+    assert ctx.profile.minigame.kind == "lullaby"
     assert ctx.profiles.exists(ctx.profile.name)
     first = ctx.profile.name
     ctx.handle_rod("Rod of the Depths")
-    assert ctx.profile.name.startswith("Rod of the Depths") and ctx.profile.minigame.kind == "stellarwave"
-    ctx.handle_rod("Stellarwave Melody Rod")        # known rod again: switch back, no new profile
+    assert ctx.profile.name.startswith("Rod of the Depths") and ctx.profile.minigame.kind == "lullaby"
+    ctx.handle_rod("Lullaby Rod")        # known rod again: switch back, no new profile
     assert ctx.profile.name == first
     assert len(ctx.profiles.names()) == 3
 

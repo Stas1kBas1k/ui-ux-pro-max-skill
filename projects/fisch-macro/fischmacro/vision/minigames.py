@@ -184,3 +184,31 @@ def detect_targets(frame: Frame, region, color: str, tol: int, min_area: float =
             cx, cy = cents[i]
             out.targets.append(((rx + cx) / cw, (ry + cy) / ch))
     return out
+
+
+def detect_migu(crop: np.ndarray | None) -> TimingResult:
+    """MiguRod counterattack bar (real screenshot in tests/fixtures/real/migu_counter.webp): a long red bar
+    with an orange diamond in the middle and a white line sweeping across; Shift when the line is on the
+    diamond. The red bar is found first, so the search area can be loose; the pointer and the diamond are
+    then read inside it. Falls back to the generic reading when no red bar is seen."""
+    if crop is None or crop.size == 0:
+        return TimingResult()
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    red = (((hsv[..., 0] <= 8) | (hsv[..., 0] >= 172)) & (hsv[..., 1] >= 120) & (hsv[..., 2] >= 110)).astype(np.uint8)
+    # close sideways gaps too: the white line (and the diamond) cut the red bar into pieces
+    k = max(5, int(0.04 * crop.shape[1]) | 1)
+    red = cv2.morphologyEx(red, cv2.MORPH_CLOSE, np.ones((5, k), np.uint8))
+    n, _, stats, _ = cv2.connectedComponentsWithStats(red, connectivity=8)
+    best = None
+    for i in range(1, n):
+        x, y, w, h, area = stats[i]
+        if w >= 4 * h and w >= 0.2 * crop.shape[1] and area >= 0.4 * w * h and (best is None or w > best[2]):
+            best = (x, y, w, h)
+    if best is None:
+        return detect_timing_auto(crop)
+    x, y, w, h = best
+    # inside the bar only: the white triangles above and below its middle would look like the pointer
+    sub = crop[y + int(0.15 * h):y + int(0.85 * h), x:x + w]
+    res = detect_timing_auto(sub)
+    res.confidence = max(res.confidence, 0.6) if res.present else res.confidence
+    return res

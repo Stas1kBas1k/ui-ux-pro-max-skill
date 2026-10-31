@@ -428,10 +428,9 @@ Verified in this repository (automated tests, run on Linux and in the Windows CI
 - The appearance of shake buttons and their colour. Template mode is the most robust option.
 - Perfect-cast detection, disconnect detection and auto reconnect (marked *experimental* in the UI).
 - Behaviour after Fisch UI updates. Auto-adapt handles colour changes; re-run Auto-calibrate after layout changes.
-- Rod minigames: the Lullaby lead time; for Stellarwave, the sign row's position and that signs are chosen by
-  clicking (the wiki says "click the correct star sign"); for MiguRod, the timing bar's look and hit window
-  (slash dodging is not automated: how it works is not documented); for Halibut Harpoon, that the '!' marks
-  sit on the reel track. Halibut is never clicked.
+- Rod minigames: the Lullaby lead time; how a Stellarwave sign is picked (the reel itself is tracked on real
+  screenshots, sign picking is off); MiguRod timing in game (the bar is read from a real screenshot; slash
+  dodging is not automated). Halibut Harpoon is never clicked (checked on a real screenshot).
 - Add-ons: the Sovereign gamepass recharge flow, the appraise button names, the inventory key, and where
   the power and world readouts appear on screen. They are marked *verify in game*.
 

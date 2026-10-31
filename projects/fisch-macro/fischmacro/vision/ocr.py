@@ -62,6 +62,24 @@ class OcrEngine:
             log.warning(self.error)
 
     def read(self, image: np.ndarray | None, min_conf: float = 0.5) -> list[TextBox]:
+        out = self._read(image, min_conf)
+        if out or image is None or image.size == 0 or not self.available:
+            return out
+        h, w = image.shape[:2]
+        if h <= 90 and w >= 6 * h:
+            # Several small lines squeezed into a low, wide box (e.g. the Sovereign "90% Power" readout under
+            # its enchant text) are often not found at all; read it again in overlapping single-line strips.
+            sh = max(12, int(h * 0.42))
+            seen = set()
+            for y0 in range(0, max(1, h - sh + 1), max(1, sh // 3)):
+                strip = cv2.resize(image[y0:y0 + sh], None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+                for b in self._read(strip, min_conf):
+                    if b.text not in seen:
+                        seen.add(b.text)
+                        out.append(TextBox(b.text, b.confidence, b.x, (y0 + b.y * sh) / h, b.w, b.h * sh / h))
+        return out
+
+    def _read(self, image: np.ndarray | None, min_conf: float) -> list[TextBox]:
         if image is None or image.size == 0 or not self.available:
             return []
         h, w = image.shape[:2]

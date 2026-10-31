@@ -65,6 +65,12 @@ class AdaptiveReel:
         return lo, hi
 
     def update(self, crop: np.ndarray | None) -> ReelResult:
+        res = self._update(crop)
+        if res.ui_present or crop is None or crop.size == 0 or crop.shape[1] < 40:
+            return res
+        return bright_bar(crop) or res
+
+    def _update(self, crop: np.ndarray | None) -> ReelResult:
         res = ReelResult()
         if crop is None or crop.size == 0 or crop.shape[1] < 40:
             return res
@@ -142,3 +148,33 @@ class AdaptiveReel:
             new = np.median(prof[:, empty], axis=1)
             self.track_sig = new if self.track_sig is None else 0.85 * self.track_sig + 0.15 * new
         return res
+
+
+def bright_bar(crop: np.ndarray) -> ReelResult | None:
+    """Fallback for reels whose empty track is not plain, e.g. Stellarwave, where zodiac glyphs fill the track:
+    the catch bar is the long run of columns that are bright from top to bottom, while glyphs outside it
+    only cover part of each column. Used only when the track-based tracker found nothing."""
+    h, w = crop.shape[:2]
+    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)[int(h * 0.2):max(int(h * 0.2) + 1, int(h * 0.8))]
+    t, _ = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    frac = (g > t).mean(axis=0)
+    # gaps up to 3% are bridged: the fish marker drawn over the bar splits it
+    runs = [r for r in _runs(frac >= 0.6, max_gap=max(2, int(0.03 * w))) if r[1] - r[0] >= 0.15 * w]
+    if not runs:
+        return None
+    b0, b1 = max(runs, key=lambda r: r[1] - r[0])
+    if b1 - b0 > 0.95 * w:
+        return None
+    inside = float(frac[b0:b1].mean())
+    out = np.concatenate([frac[:b0], frac[b1:]])
+    if inside < 0.7 or (out.size and float(out.mean()) > 0.35):
+        return None
+    fish = shape_fish(crop, (0, w))
+    if fish is None or fish[1] < 0.5:
+        return None
+    res = ReelResult()
+    res.ui_present = res.fish_found = res.bar_found = True
+    res.fish_x, res.fish_confidence = fish[0], fish[1]
+    res.bar_left, res.bar_right = b0 / w, b1 / w
+    res.bar_confidence = min(0.9, inside)
+    return res

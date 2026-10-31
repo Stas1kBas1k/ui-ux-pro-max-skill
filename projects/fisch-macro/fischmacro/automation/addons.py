@@ -32,10 +32,19 @@ class WorldState:
 def parse_power(text: str) -> int | None:
     """'Power 87%' / '87 %' / '87/100' -> 87. A bare number is never taken: the old fallback read the bait
     count or a hotbar slot number as the rod power and recharged over and over."""
-    m = re.search(r"(\d{1,3})\s*(?:%|/\s*100\b)", text)
-    if not m:
+    # The real readout is "90% Power", under an enchant line full of other percentages ("10% chance for
+    # Paradise mutation, +15% Luck, +5% Fish Weight"): a number next to the word Power wins, and with
+    # several percentages and none next to Power, nothing is read.
+    m = re.search(r"(\d{1,3})\s*%\s*power|power\W{0,3}(\d{1,3})\s*%", text, re.IGNORECASE)
+    if m:
+        v = int(m.group(1) or m.group(2))
+        return v if 0 <= v <= 100 else None
+    if re.search(r"chance|luck|weight|mutation|speed", text, re.IGNORECASE):
+        return None  # only the enchant description is in the box
+    found = re.findall(r"(?<!\d)(\d{1,3})\s*(?:%|/\s*100\b)", text)
+    if len(found) != 1:
         return None
-    v = int(m.group(1))
+    v = int(found[0])
     return v if 0 <= v <= 100 else None
 
 

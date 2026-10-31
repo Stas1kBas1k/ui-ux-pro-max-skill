@@ -7,6 +7,11 @@ from fischmacro.profiles.schema import AddonsConfig, AppSettings, Profile
 
 @pytest.mark.parametrize("text,expected", [("Power 87%", 87), ("SOVEREIGN 100 %", 100), ("45/100", 45),
                                             ("charge: 9", None), ("x12 bait 3", None), ("no digits", None),
+                                            # the real readout (tests/fixtures/real/readouts/sovereign_power.png)
+                                            ("10% chance for Paradise mutation, +15% Luck, and +5% Fish Weight "
+                                             "90% Power Press (G) To Open", 90),
+                                            ("10% chance for Paradise mutation, +15% Luck", None),
+                                            ("10% chance for Paradise mutation", None),
                                             ("250%", None)])
 def test_parse_power(text, expected):
     assert parse_power(text) == expected

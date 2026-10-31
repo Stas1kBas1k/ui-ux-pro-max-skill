@@ -397,12 +397,15 @@ class SimulatedFischGame:
                 cv2.line(img, (px, y + 2), (px, y + int(rh * 0.6)), (255, 255, 255), 2)
                 cv2.circle(img, (px, y + int(rh * 0.82)), 2, (255, 255, 255), -1)
         elif kind == "migu" and self._migu_at is not None and self._migu_at >= 0:
+            # drawn like the real one (tests/fixtures/real/migu_counter.webp): red bar, orange diamond, white line
             x, y, w, h = self._rect("mini")
-            ty0, ty1 = y + int(h * 0.35), y + int(h * 0.65)
-            cv2.rectangle(img, (x, ty0), (x + w, ty1), (60, 40, 40), -1)
-            cv2.rectangle(img, (x + int(0.44 * w), ty0), (x + int(0.56 * w), ty1), (74, 213, 255), -1)
+            ty0, ty1 = y + int(h * 0.25), y + int(h * 0.75)
+            cv2.rectangle(img, (x, ty0), (x + w, ty1), (70, 60, 220), -1)
+            cx, cy, r = x + w // 2, (ty0 + ty1) // 2, int(0.06 * w)
+            cv2.fillPoly(img, [np.array([(cx - r, cy), (cx, ty0 + 2), (cx + r, cy), (cx, ty1 - 2)], np.int32)],
+                         (40, 150, 255))
             px = x + int(self._migu_pointer() * w)
-            cv2.rectangle(img, (px - 2, y), (px + 2, y + h), (255, 255, 255), -1)
+            cv2.rectangle(img, (px - 2, ty0 - 4), (px + 2, ty1 + 4), (255, 255, 255), -1)
         elif kind == "targets":
             for tx, ty in self._targets:
                 cv2.circle(img, (int(tx * self.width), int(ty * self.height)), max(4, int(self.height * 0.012)),

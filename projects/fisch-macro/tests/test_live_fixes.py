@@ -97,3 +97,55 @@ def test_real_shake_button_is_found():
     # and nothing is clicked on a frame without a shake button
     img = cv2.imread(str(root / "plaguereaver_reel.webp"))
     assert detect_shake(Frame(img, (img.shape[1], img.shape[0])), p.region("shake"), p.detection).targets == []
+
+
+# ---------------------------------------------------------------- real screenshots sent by the player
+def _real(name):
+    import cv2
+    from pathlib import Path
+    img = cv2.imread(str(Path(__file__).parent / "fixtures" / "real" / name))
+    if img is None:
+        pytest.skip("image format not supported by this OpenCV build")
+    return img
+
+
+@pytest.mark.parametrize("name,fish,bar_right", [
+    # Stellarwave: the track is full of zodiac glyphs, the catch bar is the bright gradient run
+    ("stellarwave_reel_1.webp", 805, 1195), ("stellarwave_reel_2.webp", 915, 1180),
+    # Halibut Harpoon: the '!' is an icon above the bar and must not move the fish
+    ("halibut_reel.webp", 955, 1105),
+])
+def test_real_rod_reels_are_tracked(name, fish, bar_right):
+    from fischmacro.vision.engine import VisionEngine
+    from fischmacro.vision.frame import Frame
+    img = _real(name)
+    p = Profile()
+    e = VisionEngine(p)
+    H, W = img.shape[:2]
+    x, y, w, h = p.regions["reel"].to_rect(W, H)
+    for _ in range(3):
+        r = e.process(Frame(img, (W, H)), ("reel",), "REELING").reel
+    assert r.ui_present and r.fish_found and r.bar_found
+    assert abs(x + r.fish_x * w - fish) < 6
+    assert abs(x + r.bar_right * w - bar_right) < 12
+
+
+def test_real_migu_counterattack_bar():
+    from fischmacro.vision.minigames import detect_migu
+    img = _real("migu_counter.webp")
+    r = detect_migu(img)
+    bar_x0, bar_w = 266, 534  # the red bar in this screenshot
+    assert r.present
+    assert abs(bar_x0 + r.pointer * bar_w - 635) < 6          # the white line
+    (a, b), = r.segments                                    # the orange diamond
+    assert abs(bar_x0 + (a + b) / 2 * bar_w - 540) < 10
+    assert not detect_migu(img[300:]).present                # no red bar: nothing to press
+
+
+def test_real_sovereign_power_readout():
+    from fischmacro.automation.addons import parse_power
+    from fischmacro.vision.ocr import OcrEngine
+    if not OcrEngine.shared().available:
+        pytest.skip("OCR engine not installed")
+    text = OcrEngine.shared().text(_real("readouts/sovereign_power.png"))
+    assert parse_power(text) == 90, text

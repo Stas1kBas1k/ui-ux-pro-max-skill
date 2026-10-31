@@ -19,6 +19,19 @@ live game. Items that need live checking are marked **verify in game**.
 | No MiguRod support | — | Presses the MiguRod key (Shift by default) once per timing bar, aimed at the middle, with the learned input delay. |
 | Calibration accepted one lucky look | One window of frames decided everything. | Sample-based calibration (section 6). |
 
+## 1b. Checked on real screenshots (sent by the player, kept as tests)
+
+| Screenshot | What it showed | Result |
+|---|---|---|
+| Stellarwave reel (2) | The reel bar itself is made of 12 zodiac glyphs, shuffled every catch; the fixed Aries..Pisces row with stars is above it. The glyph-filled track broke the track-based tracker. | New fallback: the catch bar is the long run of columns bright from top to bottom. Fish within 1 px, bar edge within 5 px on both shots. |
+| Halibut Harpoon reel | The "!" is an icon **above** the bar next to the fish icon, not on the track. | Fish within 2 px, bar within 6 px. No clicks. |
+| MiguRod counterattack | Red bar, orange diamond in the middle, white line sweeping, SHIFT prompt. | The red bar is found first, then the line and the diamond are read inside it: line within 0.4% of the bar, diamond centred. |
+| Sovereign power | "90% Power" under an enchant line full of other percentages, plus "Press (G) To Open". OCR found nothing in the 3-line box. | OCR re-reads low, wide boxes line by line; the number next to "Power" wins; enchant text alone reads as nothing. Reads 90. |
+
+Because of this, the earlier Stellarwave sign-clicking model (one target sign shown above the bar) was
+wrong. The Stellarwave preset now only reels, and sign picking stays off until it's confirmed how a sign is
+picked.
+
 ## 2. Research used
 
 - **Fisch wiki (Stellarwave Melody):** 12 zodiac signs appear above and on the bar. The order above the bar is
@@ -59,7 +72,7 @@ New test files: `tests/test_reliability.py`, `tests/test_calibration_session.py`
 - **UI:** Diagnostics page, setup wizard (all 8 steps, step 1 requires the acknowledgement), and observe-only
   mode (no input reaches the backend).
 
-Full suite on Linux: **242 passed, 1 skipped** (the skip is a generic real-screenshot test with no labelled cases yet; the real Plaguereaver and SHAKE screenshots are tested in test_live_fixes.py). The Windows CI workflow runs the same suite.
+Full suite on Linux: **250 passed, 1 skipped** (the skip is a generic real-screenshot test with no labelled cases yet; the real Plaguereaver and SHAKE screenshots are tested in test_live_fixes.py). The Windows CI workflow runs the same suite.
 
 ## 4. Performance (simulator, 3 seeds; `python -m fischmacro.simulation.benchmark`)
 
@@ -81,9 +94,9 @@ Lower them only after watching a few catches.
 |---|---|---|
 | Any normal rod | Colour-free reel tracking, PD/MPC control | Simulator 80/80 on 40 random skins; real Plaguereaver screenshot in the tests |
 | Lullaby | Clicks only on lit sections, learned delay, verified mode switch | Simulator; **verify in game**: lead time |
-| Stellarwave Melody | 12-sign click with checks, AIM/VERIFY state machine | Simulator; **verify in game**: sign row position, that clicking chooses a sign |
-| MiguRod | Precision tracking + Shift on the timing bar | Simulator; **verify in game**: the bar's look; slash dodge not automated |
-| Halibut Harpoon | No clicks, filters "!" marks | Simulator; **verify in game**: marks sit on the track |
+| Stellarwave Melody | Reeling on the glyph-filled bar (real screenshots); sign picking off | **How a sign is picked is not confirmed**; the AIM/VERIFY click solver exists (kind `stellarwave`) but is off by default |
+| MiguRod | Precision tracking + Shift when the line is on the diamond | Real screenshot + simulator; **verify in game**: position above the reel, timing; slash dodge not automated |
+| Halibut Harpoon | No clicks, fish-jump filter | Real screenshot + simulator |
 | Pinion's Aria, tryhard rods | Precision tracking, wider margin | Simulator |
 | Sovereign | Recharge add-on (bounded) | Logic tested; **verify in game**: relic flow |
 

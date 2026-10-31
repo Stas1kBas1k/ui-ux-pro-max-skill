@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-from fischmacro.profiles.schema import Profile
+from fischmacro.profiles.schema import Region, Profile
 from fischmacro.vision import detectors as d
 from fischmacro.vision import minigames as mg
 from fischmacro.vision.frame import Frame
@@ -152,7 +152,11 @@ class VisionEngine:
             checked.append("catch_popup")
         mcfg = p.minigame
         if mcfg.kind != "none" and "mini" in wanted and (r := region("mini")):
-            if mcfg.kind in ("lullaby", "migu"):
+            if mcfg.kind == "migu":
+                # the counterattack bar sits above the reel; search a taller box and find the red bar in it
+                area = Region(r.x, max(0.0, r.y - 0.10), r.w, min(1.0, r.h + 0.14))
+                obs.timing = mg.detect_migu(frame.crop(area) if frame.crop(area) is not None else frame.crop(r))
+            elif mcfg.kind == "lullaby":
                 mcrop = frame.crop(r)
                 obs.timing = mg.detect_timing(mcrop, mcfg.pointer_color, mcfg.pointer_tolerance,
                                               mcfg.lit_color, mcfg.lit_tolerance, mcfg.axis)

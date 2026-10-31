@@ -180,8 +180,8 @@ def test_rod_picker_has_every_rod_and_automatic(app, window):
     page = window.fishing
     assert page.rod_combo.findText(AUTO_ROD) == 0
     assert page.rod_combo.count() == len(ALL_RODS) + 1
-    page._choose_rod("Stellarwave Melody")
-    assert window.ctx.profile.minigame.kind == "stellarwave"
+    page._choose_rod("Lullaby")
+    assert window.ctx.profile.minigame.kind == "lullaby"
     assert not window.ctx.settings.rod_detect.enabled
     page._choose_rod("Carbon Rod")  # a normal rod: no rod minigame
     assert window.ctx.profile.minigame.kind == "none"
