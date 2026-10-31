@@ -59,7 +59,7 @@ New test files: `tests/test_reliability.py`, `tests/test_calibration_session.py`
 - **UI:** Diagnostics page, setup wizard (all 8 steps, step 1 requires the acknowledgement), and observe-only
   mode (no input reaches the backend).
 
-Full suite on Linux: **242 passed, 1 skipped** (the skip is a Windows-only test). The Windows CI workflow runs the same suite.
+Full suite on Linux: **242 passed, 1 skipped** (the skip is a generic real-screenshot test with no labelled cases yet; the real Plaguereaver and SHAKE screenshots are tested in test_live_fixes.py). The Windows CI workflow runs the same suite.
 
 ## 4. Performance (simulator, 3 seeds; `python -m fischmacro.simulation.benchmark`)
 
