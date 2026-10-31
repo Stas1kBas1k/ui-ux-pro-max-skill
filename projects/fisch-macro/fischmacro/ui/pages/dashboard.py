@@ -40,6 +40,7 @@ class DashboardPage(QWidget):
     vision_requested = Signal()
     autocal_requested = Signal()
     fishing_requested = Signal()
+    wizard_requested = Signal()
 
     def __init__(self, ctx):
         super().__init__()
@@ -95,6 +96,10 @@ class DashboardPage(QWidget):
             b.setMinimumWidth(190)
             b.setCursor(Qt.PointingHandCursor)
             btns.addWidget(b)
+        wiz = QPushButton(icon("settings", C["muted"]), "  Setup wizard")
+        wiz.setCursor(Qt.PointingHandCursor)
+        wiz.clicked.connect(self.wizard_requested)
+        btns.addWidget(wiz)
         btns.addStretch(1)
         self.hero.lay.addLayout(btns)
         self.start_btn.clicked.connect(self.start_requested)

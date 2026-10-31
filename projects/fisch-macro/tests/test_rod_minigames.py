@@ -30,15 +30,17 @@ def test_timing_detector_finds_pointer_and_lit_sections():
             assert abs(a - ta) < 0.02 and abs(b - tb) < 0.02
 
 
-def test_match_detector_picks_the_matching_sign():
+def test_match_detector_ranks_the_asked_sign_first_or_second():
+    """12 zodiac signs on the bar; similar outlines may tie, which the solver resolves by checking clicks."""
     p = Profile()
     for seed in range(6):
         g, f = frame_of("stellarwave", seed=seed)
         res = mg.detect_match(f, p.region("mini_target"), p.region("mini"), p.minigame.symbol_color,
                               p.minigame.symbol_tolerance)
-        assert res.target_present and len(res.options) == 4
-        name = next(n for n, x, y in g._signs if abs(x - res.best.x) < 0.03)
-        assert name == g._target_sign
+        assert res.target_present and len(res.options) >= 12
+        top2 = sorted(res.options, key=lambda o: o.score, reverse=True)[:2]
+        names = [next(n for n, x, y in g._signs if abs(x - o.x) < 0.012) for o in top2]
+        assert g._target_sign in names
 
 
 def test_targets_detector():
@@ -58,8 +60,7 @@ def test_rod_minigame_solved_while_still_catching(kind, action):
     res = run_simulation(p, game=g, cycles=3, max_time=300, fps=60)
     assert res.outcomes.get("success", 0) == 3, "the bar must keep following the fish"
     assert g.stats.mini_hits >= 3 and g.stats.mini_misses <= g.stats.mini_hits // 5
-    if kind == "lullaby":
-        assert g.stats.mode_presses == 3  # one Q press per minigame
+    assert g.stats.mode_presses == 0  # the mode key is never pressed during a catch (it changes the mode)
 
 
 def test_lullaby_only_mode_leaves_the_bar_alone():
@@ -116,3 +117,111 @@ def test_lullaby_read_on_any_skin_without_colours(seed):
     assert len(res.segments) == len(truth)
     for (a, b), (ta, tb) in zip(sorted(res.segments), truth):
         assert abs(a - ta) < 0.03 and abs(b - tb) < 0.03
+
+
+# ---------------------------------------------------------------- Stellarwave, MiguRod, Halibut Harpoon
+def _rod_game(kind, action="click", seed=3, gain=None):
+    g = SimulatedFischGame(seed=seed, difficulty=0.4)
+    g.rod_minigame, g.mini_action = kind, action
+    if gain is not None:
+        g.progress_gain = gain
+    return g
+
+
+def test_stellarwave_clicks_signs_in_order_and_checks_each_click():
+    p = Profile()
+    p.minigame.kind = "stellarwave"
+    g = _rod_game("stellarwave")
+    res = run_simulation(p, game=g, cycles=3, max_time=300, fps=60)
+    assert res.outcomes.get("success", 0) == 3
+    assert g.stats.mini_hits >= 12, "goes through the zodiac order"
+    assert g.stats.mini_misses <= g.stats.mini_hits // 4
+    assert g.stats.mode_presses == 0
+
+
+def test_stellarwave_does_not_repeat_a_wrong_sign():
+    """Two signs look alike: after a wrong click the other one is tried, never the same one twice."""
+    from fischmacro.automation.minigame_solvers import MinigameSolver
+    from fischmacro.vision.engine import Observation
+    from fischmacro.vision.minigames import MatchOption
+
+    clicks = []
+
+    class Fsm:
+        input = None
+        last_obs = None
+
+        def _screen(self, obs, x, y):
+            return x, y
+
+    s = MinigameSolver(Profile().minigame, Fsm())
+    s.cfg.kind = "stellarwave"
+    s._act = lambda pos=None: clicks.append(pos)
+    obs = Observation()
+    obs.match.target_present, obs.match.signature = True, 111
+    obs.match.options = [MatchOption(0.40, 0.7, 0.90), MatchOption(0.45, 0.7, 0.89), MatchOption(0.5, 0.7, 0.7),
+                          MatchOption(0.55, 0.7, 0.6), MatchOption(0.6, 0.7, 0.1)]
+    t = 0.0
+    for _ in range(200):  # the target never changes: every click is wrong
+        s.update(obs, t)
+        t += 0.02
+    assert [c[0] for c in clicks] == [0.40, 0.45, 0.5][:len(clicks)] and len(clicks) == 3
+    assert s.stellar_state == "GAVE_UP"
+    obs.match.signature = 222  # next sign asked: starts again
+    s.update(obs, t)
+    assert len(clicks) == 4
+
+
+def test_migu_presses_shift_once_per_timing_bar_in_the_middle():
+    p = Profile()
+    p.minigame.kind = "migu"
+    g = _rod_game("migu", "shift", gain=0.05)
+    res = run_simulation(p, game=g, cycles=2, max_time=300, fps=60)
+    assert res.outcomes.get("success", 0) == 2
+    assert g.stats.mini_hits >= 2 and g.stats.mini_misses == 0, list(res.fsm.minigame.log)
+
+
+def test_migu_is_separate_from_stellarwave():
+    """The Migu solver presses its key, never clicks signs; Stellarwave never presses Shift."""
+    p = Profile()
+    p.minigame.kind = "migu"
+    g = _rod_game("stellarwave", "shift", gain=0.02)  # a Stellarwave screen with the Migu solver
+    run_simulation(p, game=g, cycles=1, max_time=120, fps=60)
+    assert g.stats.mini_hits == 0
+    p.minigame.kind = "stellarwave"
+    g = _rod_game("migu", "shift", gain=0.02)
+    run_simulation(p, game=g, cycles=1, max_time=120, fps=60)
+    assert g.stats.mini_hits == 0 and g.stats.mini_misses <= 1  # only the bar running out
+
+
+def test_halibut_ignores_marks_and_never_clicks_targets():
+    p = Profile()
+    p.minigame.kind = "halibut"
+    g = _rod_game("halibut")
+    res = run_simulation(p, game=g, cycles=3, max_time=300, fps=60)
+    assert res.outcomes.get("success", 0) == 3
+    assert g.stats.mini_hits >= 1  # harpoons landed while the fish was in the bar
+    assert g.stats.mode_presses == 0
+
+
+def test_halibut_filter_needs_three_frames_to_believe_a_jump():
+    from fischmacro.automation.minigame_solvers import MinigameSolver
+    from fischmacro.vision.engine import Observation
+
+    s = MinigameSolver(Profile().minigame, None)
+    s.cfg.kind = "halibut"
+    seen = []
+    for i, x in enumerate([0.50, 0.51, 0.85, 0.52, 0.53, 0.80, 0.80, 0.80]):
+        o = Observation()
+        o.reel.fish_found, o.reel.fish_x = True, x
+        s.filter_obs(o, i * 0.03)
+        seen.append(round(o.reel.fish_x, 2))
+    assert seen == [0.50, 0.51, 0.51, 0.52, 0.53, 0.53, 0.53, 0.80]
+
+
+@pytest.mark.parametrize("rod,kind", [("Stellarwave Melody", "stellarwave"), ("Halibut Harpoon", "halibut"),
+                                      ("MiguRod", "migu")])
+def test_presets_pick_the_right_solver(rod, kind):
+    p = Profile()
+    apply_preset(p, find_preset(rod))
+    assert p.minigame.kind == kind

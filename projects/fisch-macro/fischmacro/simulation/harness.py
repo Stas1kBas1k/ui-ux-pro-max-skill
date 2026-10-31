@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import time
 from dataclasses import dataclass, field
 
 from fischmacro.automation.fsm import FishingStateMachine
@@ -25,6 +26,7 @@ class SimResult:
     game: SimulatedFischGame | None = None
     fsm: FishingStateMachine | None = None
     sim_time: float = 0.0
+    process_ms: list[tuple[str, float]] = field(default_factory=list)  # (state, vision ms) per frame
 
     @property
     def outcomes(self) -> dict[str, int]:
@@ -57,7 +59,9 @@ def run_simulation(profile: Profile | None = None, *, seed: int = 0, difficulty:
     while game.t < max_time and len(result.cycles) < cycles and fsm.running:
         wanted = engine.regions_for(fsm.state.value)
         frame = Frame(game.render(), (game.width, game.height), timestamp=game.t)
+        t0 = time.perf_counter()
         obs = engine.process(frame, wanted, fsm.state.value)
+        result.process_ms.append((fsm.state.value, (time.perf_counter() - t0) * 1000))
         fsm.update(obs, game.t)
         if on_step:
             on_step(game, fsm, obs)

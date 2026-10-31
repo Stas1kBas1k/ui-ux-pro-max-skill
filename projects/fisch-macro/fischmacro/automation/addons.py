@@ -10,6 +10,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 
 from fischmacro.game_data import SURGE_TOTEM, SURGES, TIME_TOTEM, WEATHER_TOTEM, WEATHERS
 from fischmacro.profiles.schema import AddonsConfig, Routine, RoutineStep
@@ -29,14 +30,103 @@ class WorldState:
 
 
 def parse_power(text: str) -> int | None:
-    """'Power 87%' / '87 %' / '87/100' -> 87."""
-    m = re.search(r"(\d{1,3})\s*(?:%|/\s*100)", text)
-    if not m:
-        m = re.search(r"\b(\d{1,3})\b", text)
+    """'Power 87%' / '87 %' / '87/100' -> 87. A bare number is never taken: the old fallback read the bait
+    count or a hotbar slot number as the rod power and recharged over and over."""
+    m = re.search(r"(\d{1,3})\s*(?:%|/\s*100\b)", text)
     if not m:
         return None
     v = int(m.group(1))
     return v if 0 <= v <= 100 else None
+
+
+class Recharge(str, Enum):
+    IDLE = "idle"
+    IN_PROGRESS = "in progress"     # a relic was used, waiting for the power to go up
+    COMPLETE = "complete"
+    FAILED = "failed"
+    COOLDOWN = "cooldown"           # after a failure: no attempts for a while
+    DISABLED = "disabled"           # failed too often this session
+
+
+@dataclass
+class RechargeMachine:
+    """Sovereign recharge with hard limits, so a bad reading can never spam the inventory.
+
+    One attempt uses at most ``max_relics`` relics, and each must be followed by a higher power reading
+    (verified). A relic that changes nothing fails the attempt and starts a cooldown; after
+    ``max_failures`` failures the add-on stops for the session.
+    """
+    max_relics: int = 4
+    confirm_s: float = 8.0
+    cooldown_s: float = 300.0
+    max_failures: int = 3
+    state: Recharge = Recharge.IDLE
+    failures: int = 0
+    relics_used: int = 0
+    until: float = 0.0
+    last_message: str = ""
+    history: list[tuple[float, str]] = field(default_factory=list)
+
+    def _to(self, state: Recharge, now: float, msg: str) -> None:
+        self.state, self.last_message = state, msg
+        self.history.append((now, f"{state.value}: {msg}"))
+        del self.history[:-30]
+
+    def reset(self) -> None:
+        self.state, self.failures, self.relics_used, self.until, self.last_message = Recharge.IDLE, 0, 0, 0.0, ""
+        self.history.clear()
+
+    def wanted(self, power: int | None, power_age: float, below: int, now: float) -> bool:
+        """Start an attempt? Needs a fresh, stable reading under the threshold and no cooldown."""
+        if self.state == Recharge.DISABLED:
+            return False
+        if self.state == Recharge.COOLDOWN and now < self.until:
+            return False
+        if self.state in (Recharge.COOLDOWN, Recharge.COMPLETE, Recharge.FAILED):
+            self.state = Recharge.IDLE
+        return self.state == Recharge.IDLE and power is not None and power_age < 30 and power < below
+
+    def run(self, use_relic, read_power, wait, target: int, now_fn) -> bool:
+        """Do one attempt. ``use_relic()`` -> bool, ``read_power()`` -> (power, updated_at) of the latest
+        stable reading, ``wait(s)`` -> True when aborted. Returns False only when aborted."""
+        self.relics_used = 0
+        self._to(Recharge.IN_PROGRESS, now_fn(), "using relic")
+        power, _ = read_power()
+        for _ in range(self.max_relics):
+            _, seen_at = read_power()
+            if not use_relic():
+                self._to(Recharge.FAILED, now_fn(), "the relic could not be used (input refused or not found)")
+                return self._fail(now_fn())
+            self.relics_used += 1
+            deadline = now_fn() + self.confirm_s
+            new, at = read_power()
+            while at <= seen_at and now_fn() < deadline:
+                if wait(0.3):
+                    self._to(Recharge.IDLE, now_fn(), "stopped")
+                    return False
+                new, at = read_power()
+            if at <= seen_at or new is None:
+                self._to(Recharge.FAILED, now_fn(), "no new power reading after the relic - check the power region")
+                return self._fail(now_fn())
+            if power is not None and new <= power:
+                self._to(Recharge.FAILED, now_fn(), f"power did not go up ({power}% -> {new}%)")
+                return self._fail(now_fn())
+            power = new
+            if power >= target:
+                self.failures = 0
+                self._to(Recharge.COMPLETE, now_fn(), f"recharged to {power}% with {self.relics_used} relic(s)")
+                return True
+        self._to(Recharge.COMPLETE, now_fn(), f"at {power}% after {self.relics_used} relics (limit per attempt)")
+        return True
+
+    def _fail(self, now: float) -> bool:
+        self.failures += 1
+        if self.failures >= self.max_failures:
+            self._to(Recharge.DISABLED, now, f"stopped for this session after {self.failures} failed attempts")
+        else:
+            self.until = now + self.cooldown_s
+            self.state = Recharge.COOLDOWN
+        return True
 
 
 def parse_world(text: str) -> tuple[str, str, str]:
@@ -68,6 +158,8 @@ class AddonsService:
     world: WorldState = field(default_factory=WorldState)
     last_used: dict[str, float] = field(default_factory=dict)
     session_start: float = field(default_factory=time.monotonic)
+    recharge: RechargeMachine = field(default_factory=RechargeMachine)
+    _power_candidate: int | None = None
 
     # -- readouts (called from the watcher thread)
     def on_world_text(self, text: str, now: float) -> None:
@@ -81,13 +173,20 @@ class AddonsService:
         w.updated = now
 
     def on_power_text(self, text: str, now: float) -> None:
+        """Take a power reading only when two reads in a row agree (one misread must not start a recharge)."""
         p = parse_power(text)
-        if p is not None:
+        if p is None:
+            self._power_candidate = None
+            return
+        prev = self._power_candidate
+        self._power_candidate = p
+        if prev is not None and abs(prev - p) <= 2:
             self.world.power, self.world.power_updated = p, now
 
     def reset(self, now: float) -> None:
         self.last_used.clear()
         self.session_start = now
+        self.recharge.reset()
 
     # -- decisions (pure, testable)
     def _due(self, key: str, now: float, every_min: float) -> bool:
@@ -98,7 +197,7 @@ class AddonsService:
         """Routines to run now, in order, with a reason."""
         c, w, out = self.cfg, self.world, []
         s = c.sovereign
-        if s.enabled and w.power is not None and now - w.power_updated < 60 and w.power < s.recharge_below:
+        if s.enabled and self.recharge.wanted(w.power, now - w.power_updated, s.recharge_below, now):
             out.append((f"Sovereign power {w.power}% (below {s.recharge_below}%)", self.recharge_routine()))
         t = c.totem
         if t.enabled and w.updated and now - w.updated < 120:

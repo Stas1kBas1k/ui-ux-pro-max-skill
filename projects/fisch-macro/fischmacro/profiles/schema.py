@@ -183,8 +183,10 @@ class ReelConfig:
 @dataclass
 class MinigameConfig:
     kind: str = opt("none", "Rod minigame", "Extra minigame of the equipped rod. 'lullaby' = timing clicks on the "
-                    "metronome, 'stellarwave' = click the matching star sign, 'targets' = click marked targets "
-                    "(Halibut Harpoon style, experimental).", choices=["none", "lullaby", "stellarwave", "targets"])
+                    "metronome, 'stellarwave' = click the zodiac sign that is asked for, 'migu' = Shift on the "
+                    "MiguRod timing bar, 'halibut' = no clicks, keep the fish in the bar while harpoons land "
+                    "('!' marks are ignored), 'targets' = click coloured targets (generic, experimental).",
+                    choices=["none", "lullaby", "stellarwave", "migu", "halibut", "targets"])
     keep_reeling: bool = opt(True, "Keep following the fish", "Track the fish with the catch bar while doing the rod "
                              "minigame. Turn off to only play the rod minigame.")
     action: str = opt("click", "Minigame input", "'click', or a key name if the game uses a key.", kind="key")
@@ -192,8 +194,9 @@ class MinigameConfig:
     # Lullaby
     lullaby_mode: str = opt("Keep current", "Lullaby mode", "Switched with Q until this mode's name shows on screen.")
     mode_key: str = opt("q", "Mode key (Lullaby)", kind="key")
-    mode_presses: int = opt(0, "Mode key presses per catch", "How many times to press the mode key when a minigame "
-                            "starts, to pick a Lullaby mode.", min=0, max=6)
+    mode_presses: int = opt(0, "Mode key presses per catch (ignored)", "No longer used: pressing the mode key "
+                            "every catch changed the mode. The mode is set once per Start, checked on screen.",
+                            min=0, max=6)
     pointer_color: str = opt("#FFFFFF", "Pendulum colour", kind="color")
     pointer_tolerance: int = opt(35, "Pendulum tolerance", min=0, max=128)
     lit_color: str = opt("#FFD54A", "Lit section colour", kind="color")
@@ -207,6 +210,14 @@ class MinigameConfig:
     symbol_tolerance: int = opt(45, "Star sign tolerance", min=0, max=128)
     match_threshold: float = opt(0.55, "Match threshold", "How similar an option must be to the target sign.",
                                  min=0.2, max=0.99, step=0.05, decimals=2)
+    # MiguRod (the dodge itself is not automated: how slashes are dodged is not documented)
+    migu_key: str = opt("shift", "MiguRod key", "Key for the timing bar above the control bar (Shift by default "
+                        "in game; Ctrl / Alt / Space can be set there).", kind="key")
+    migu_window: float = opt(0.05, "MiguRod hit window", "How close to the middle the pointer must be, as a "
+                             "fraction of the bar width.", min=0.01, max=0.2, step=0.01, decimals=2)
+    # Halibut Harpoon
+    halibut_gun_key: str = opt("", "Harpoon Gun key (unverified)", "Empty = never pressed. Q is said to turn the "
+                               "rod into a Harpoon Gun; not checked in game.", kind="key", experimental=True)
     # Targets
     target_color: str = opt("#FF3B30", "Target colour", kind="color", experimental=True)
     target_tolerance: int = opt(40, "Target tolerance", min=0, max=128, experimental=True)
@@ -248,6 +259,17 @@ class Profile:
     timing: TimingConfig = field(default_factory=TimingConfig)
     equipment: EquipmentConfig = field(default_factory=EquipmentConfig)
     modules: dict[str, dict] = field(default_factory=dict)
+
+    def validate(self) -> list[str]:
+        """Problems that make fishing impossible (empty when the profile can be used)."""
+        out = []
+        for name in ("reel", "shake"):
+            r = self.regions.get(name)
+            if r is None or not r.enabled or not r.is_valid():
+                out.append(f"the '{REGION_LABELS[name]}' region is missing - run calibration or reset the profile")
+            elif r.x + r.w > 1.001 or r.y + r.h > 1.001:
+                out.append(f"the '{REGION_LABELS[name]}' region goes past the edge of the game window")
+        return out
 
     def region(self, name: str) -> Region:
         if name not in self.regions:
@@ -307,6 +329,9 @@ class InputConfig:
     method: str = opt("Scan codes (recommended)", "Input method",
                       "Scan codes reach Roblox like a real keyboard. Use pynput only if scan codes do not work for you.",
                       choices=["Scan codes (recommended)", "pynput"])
+    observe_only: bool = opt(False, "Observe only (send no input)", "Diagnostic mode: the macro watches the game "
+                             "and decides what it would do (shown on the Diagnostics page) but sends no "
+                             "mouse or key input. Play by hand and compare.")
 
 
 @dataclass
@@ -430,7 +455,8 @@ class SovereignAddon:
     recharge_below: int = 90
     charge_up_to: int = 99
     relic: str = "Enchant Relic"
-    power_region: Region = field(default_factory=lambda: Region(0.40, 0.86, 0.20, 0.05))
+    # not enabled until the user picks it: the old guessed spot covered the bait count and hotbar numbers
+    power_region: Region = field(default_factory=lambda: Region(0.40, 0.86, 0.20, 0.05, enabled=False))
 
 
 @dataclass
@@ -518,6 +544,7 @@ class MiniModeConfig:
 class AppSettings:
     active_profile: str = "Default"
     risk_acknowledged: bool = False
+    setup_done: bool = False
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
     capture: CaptureConfig = field(default_factory=CaptureConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)

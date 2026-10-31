@@ -121,7 +121,9 @@ def test_addons_page_edits_settings(app, window):
     assert not card.body.isVisible()
     card.toggle_expanded()
     assert card.body.isVisibleTo(card)
+    a.sovereign.power_region.enabled = True  # picked on screen
     window.ctx.engine.addons.on_power_text("Power 77%", 1.0)
+    window.ctx.engine.addons.on_power_text("Power 77%", 1.5)
     window.select_page(2)
     page.refresh()
     assert page.power_val.text() == "77%"
@@ -206,3 +208,44 @@ def test_assistant_page_without_key(app, window, monkeypatch):
     page.send("hello")
     assert "API key" in page.status.text()
     assert not page.read_btn.isEnabled()
+
+
+def test_diagnostics_page_shows_engine_state(app, window):
+    from fischmacro.ui.pages.diagnostics import diagnostics_html
+    html = diagnostics_html(window.ctx.engine)
+    assert "Fishing state" in html and "Retries and recoveries" in html
+    window.select_page(window.NAV.index(("diagnostics", "Diagnostics")))
+    window.diagnostics.refresh()
+    assert "Engine" in window.diagnostics.view.toPlainText()
+
+
+def test_setup_wizard_walks_all_steps(app, window):
+    from fischmacro.ui.setup_wizard import STEPS, SetupWizard
+    w = SetupWizard(window.ctx, window)
+    w.show()
+    w.ack.setChecked(False)
+    w._next()
+    assert w.steps.currentRow() == 0, "cannot pass step 1 without the acknowledgement"
+    w.ack.setChecked(True)
+    for i in range(1, len(STEPS)):
+        w._next()
+        assert w.steps.currentRow() == i
+        w._tick()
+    assert "Ready" in w.summary.text()
+    w._next()
+    assert window.ctx.settings.setup_done and window.ctx.settings.risk_acknowledged
+
+
+def test_observe_only_sends_nothing():
+    from fischmacro.automation.engine import AutomationEngine
+    from fischmacro.input.controller import ObservedBackend
+    from fischmacro.profiles.schema import AppSettings, Profile
+    s = AppSettings()
+    s.input.observe_only = True
+    eng = AutomationEngine(s, Profile())
+    inp = eng._make_inputs()
+    assert isinstance(inp.backend, ObservedBackend) and inp.backend.dry_run
+    inp.mouse_down()
+    inp.mouse_up()
+    assert inp.backend.recent and not any(sent for _, _, sent, _ in inp.backend.recent)
+    assert inp.backend.inner.events == []

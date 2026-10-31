@@ -18,13 +18,14 @@ from enum import Enum
 from fischmacro.automation.fsm import FishingStateMachine, State
 from fischmacro.automation.reel_controller import ReelDebug
 from fischmacro.diagnostics.stats import SessionStats, StatsStore
-from fischmacro.input.controller import InputController, create_backend
+from fischmacro.input.controller import InputController, ObservedBackend, RecordingBackend, create_backend
 from fischmacro.profiles.schema import AppSettings, Profile, Routine, Watcher
 from fischmacro.automation.minigame_solvers import MinigameSolver
 from fischmacro.automation.modules import ModuleHost
 from fischmacro.automation.reel_controller import ReelController
 from fischmacro.automation.routines import RoutineContext, RoutineRunner, RoutineScheduler
 from fischmacro.automation.addons import AddonsService
+from fischmacro.automation.lullaby_mode import switch_lullaby_mode, visible_lullaby_mode
 from fischmacro.game_data import LULLABY_MODES
 from fischmacro.automation.watchers import WatcherService
 from fischmacro.diagnostics.notify import DiscordNotifier
@@ -120,6 +121,11 @@ class AutomationEngine:
         self.on_rod_detected = None    # callback(rod_name) - the UI decides which profile to use
         self.detected_rod = ""
         self._pending_profile: Profile | None = None
+        self.cal_session = None  # CalibrationSession while the calibration wizard runs
+        self.start_report: list[tuple[str, bool, str]] = []  # (stage, ok, detail) of the last Start press
+        self._focus_retry_until = 0.0
+        self._next_focus_try = 0.0
+        self._focus_tries = 0
 
     # ------------------------------------------------------------------ setup
     def _new_fsm(self) -> FishingStateMachine:
@@ -144,8 +150,10 @@ class AutomationEngine:
         if self._inputs_override is not None:
             return self._inputs_override
         i = self.settings.input
-        backend = create_backend(self.sim_game, prefer_scancodes=not i.method.startswith("pynput"))
-        return InputController(backend, i.click_hold_ms, i.key_hold_ms, i.mouse_nudge)
+        dry = i.observe_only and self.sim_game is None
+        backend = RecordingBackend() if dry else create_backend(self.sim_game,
+                                                                prefer_scancodes=not i.method.startswith("pynput"))
+        return InputController(ObservedBackend(backend, dry_run=dry), i.click_hold_ms, i.key_hold_ms, i.mouse_nudge)
 
     @property
     def simulated(self) -> bool:
@@ -175,11 +183,13 @@ class AutomationEngine:
             self.inputs.release_all()
             self.inputs = self._make_inputs()
             self.fsm = self._new_fsm()
-            self._stop_threads.clear()
+            # every start gets its own stop flag, so a thread that was slow to stop can never run on
+            # next to the new ones (two engines would send twice the input)
+            self._stop_threads = stop = threading.Event()
             self._queue = queue.Queue(maxsize=2)
             self._threads = [
-                threading.Thread(target=self._capture_loop, name="capture", daemon=True),
-                threading.Thread(target=self._process_loop, name="vision", daemon=True),
+                threading.Thread(target=self._capture_loop, args=(stop,), name="capture", daemon=True),
+                threading.Thread(target=self._process_loop, args=(stop,), name="vision", daemon=True),
             ]
             for t in self._threads:
                 t.start()
@@ -203,9 +213,38 @@ class AutomationEngine:
         self.inputs.release_all()
 
     def start_automation(self) -> bool:
+        """Start fishing. Every stage is checked and logged; ``start_report`` says which one failed."""
+        self.start_report = []
         if self._status in (Status.RUNNING, Status.PAUSED):
+            self._stage("not already running", False, "automation is already " + self._status.value.lower())
             return False
-        self.start_vision()
+        if self.routine_running:
+            self._stage("no routine running", False, f"'{self.routine_running}' is still running")
+            return False
+        problems = self.profile.validate()
+        if problems:
+            self._stage("profile valid", False, "; ".join(problems))
+            return False
+        self._stage("profile valid", True, self.profile.name)
+        try:
+            self.start_vision()
+        except Exception as exc:  # noqa: BLE001 - report instead of leaving a half-started engine
+            log.exception("Vision failed to start")
+            self._stage("capture started", False, str(exc))
+            self.stop_vision()
+            return False
+        self._stage("capture started", True, "simulation" if self.simulated else self.settings.capture.mode)
+        if not self.simulated and self.source is not None:
+            try:
+                win = self.source.locate()
+            except Exception as exc:  # noqa: BLE001
+                win = None
+                log.debug("locate failed", exc_info=True)
+                self._stage("game window found", False, str(exc))
+            if win is not None:
+                self._stage("game window found", win.found,
+                            f"{win.width}x{win.height}" if win.found else
+                            f"no window titled '{self.settings.capture.window_title}' - open Roblox first")
         with self._lock:
             self._abort.clear()
             self.inputs.enable()
@@ -223,25 +262,42 @@ class AutomationEngine:
             self._lullaby_mode_set = ""
             self.fsm.start(time.monotonic())
             self._status = Status.RUNNING
+        self._stage("input enabled", self.inputs.enabled, getattr(self.inputs.backend, "name", ""))
+        self._arm_focus(time.monotonic())
         if not self.simulated and self.source is not None:
-            self._focus_game()
+            self._stage("game focused", self._focus_game(), "fishing starts as soon as Roblox is focused")
+        observe = isinstance(self.inputs.backend, ObservedBackend) and self.inputs.backend.dry_run
         self._event("info", f"Automation started with profile '{self.profile.name}'"
-                    + (" [SIMULATION - no real input]" if self.simulated else ""))
+                    + (" [SIMULATION - no real input]" if self.simulated else "")
+                    + (" [OBSERVE ONLY - no input is sent]" if observe else ""))
         return True
 
-    def _focus_game(self) -> None:
-        """Pressing Start in this window leaves Roblox in the background; bring it forward once."""
+    def _stage(self, name: str, ok: bool, detail: str = "") -> None:
+        self.start_report.append((name, bool(ok), detail))
+        log.info("start: %-20s %s %s", name, "ok" if ok else "FAILED", detail)
+        if not ok:
+            self._event("warning", f"Start: {name} - {detail}" if detail else f"Start: {name} failed")
+
+    def _arm_focus(self, now: float) -> None:
+        """For a few seconds after Start / Resume, keep trying to bring Roblox forward (the app window or the
+        mini window can take focus back right after the first try)."""
+        self._focus_retry_until = now + 6.0
+        self._next_focus_try = now + 0.6
+        self._focus_tries = 0
+
+    def _focus_game(self) -> bool:
+        """Bring Roblox to the front. Returns True when it is focused."""
         try:
             win = self.source.locate()
             if not win.found:
-                self._event("warning", f"Roblox window '{self.settings.capture.window_title}' not found - open the game first")
-                return
-            if not win.focused:
-                from fischmacro.vision.win32 import focus_window
-                if not focus_window(win.handle):
-                    self._event("info", "Click the Roblox window once - fishing starts when it is focused")
+                return False
+            if win.focused:
+                return True
+            from fischmacro.vision.win32 import focus_window
+            return bool(focus_window(win.handle))
         except Exception:  # noqa: BLE001 - focusing is a convenience only
             log.debug("Could not focus the game", exc_info=True)
+            return False
 
     def stop_automation(self, reason: str = "stopped by user") -> None:
         # Release first, without waiting for the processing thread.
@@ -283,6 +339,7 @@ class AutomationEngine:
             self.fsm.resync(time.monotonic(), "resume")
             self._status = Status.RUNNING
             self._last_active_tick = None
+        self._arm_focus(time.monotonic())
         self._event("info", "Resumed")
 
     def toggle_pause(self) -> None:
@@ -366,9 +423,9 @@ class AutomationEngine:
             return None
         return union_rect(rects, 4, (win_w, win_h))
 
-    def _capture_loop(self) -> None:
+    def _capture_loop(self, stop: threading.Event) -> None:
         perf = self.settings.performance
-        while not self._stop_threads.is_set():
+        while not stop.is_set():
             t0 = time.monotonic()
             reeling = self._status == Status.RUNNING and self.fsm.state == State.REELING
             period = 1.0 / max(1, perf.reel_fps if reeling else perf.detection_fps)
@@ -406,16 +463,18 @@ class AutomationEngine:
             if isinstance(item, _CaptureFailure):
                 delay = max(delay, 0.25)
             if delay > 0:
-                self._stop_threads.wait(delay)
+                stop.wait(delay)
 
-    def _process_loop(self) -> None:
+    def _process_loop(self, stop: threading.Event) -> None:
         last = time.monotonic()
         fps = 0.0
-        while not self._stop_threads.is_set():
+        while not stop.is_set():
             try:
                 item = self._queue.get(timeout=0.5)
             except queue.Empty:
                 continue
+            if stop.is_set():
+                break
             now = time.monotonic()
             dt = now - last
             last = now
@@ -477,8 +536,15 @@ class AutomationEngine:
                         self._focus_paused = True
                         self.inputs.release_all()
                         self.fsm.reel.release()
-                        self._event("warning", "Roblox lost focus - inputs paused until it is focused again")
-                    message = "Waiting for Roblox to be focused"
+                        if now >= self._focus_retry_until:
+                            self._event("warning", "Roblox lost focus - inputs paused until it is focused again")
+                    if now < self._focus_retry_until and now >= self._next_focus_try and self._focus_tries < 4:
+                        self._focus_tries += 1
+                        self._next_focus_try = now + 1.2
+                        if self._focus_game():
+                            log.info("start: focused Roblox (try %d)", self._focus_tries)
+                    message = ("Bringing Roblox to the front - waiting for it to be focused" if now < self._focus_retry_until else
+                               "Click into Roblox - fishing waits until the game window is focused")
                 else:
                     if self._focus_paused:
                         self._focus_paused = False
@@ -565,7 +631,7 @@ class AutomationEngine:
         if a.totem.enabled:
             out.append(Watcher("World", enabled=True, kind="world", region=a.totem.world_region, interval_s=5,
                                notify_discord=False, toast=False))
-        if a.sovereign.enabled:
+        if a.sovereign.enabled and a.sovereign.power_region.enabled:
             out.append(Watcher("Sovereign power", enabled=True, kind="power", region=a.sovereign.power_region,
                                interval_s=4, notify_discord=False, toast=False))
         if st.rod_detect.enabled:
@@ -634,46 +700,33 @@ class AutomationEngine:
         runner = self._routine_runner()
         if r.note != "sovereign":
             return runner.run(r)
-        # Sovereign: use relics until the power readout reaches the target (max 10 relics).
-        s = self.settings.addons.sovereign
-        for _ in range(10):
-            seen = self.addons.world.power_updated
-            if not runner.run(r):
-                return False
-            deadline = time.monotonic() + 8.0
-            while self.addons.world.power_updated <= seen and time.monotonic() < deadline:
-                if self._abort.wait(0.3):
-                    return False
-            p = self.addons.world.power
-            if p is None or self.addons.world.power_updated <= seen:
-                self._event("warning", "Sovereign: no power reading after the relic - check the power region")
-                return True
-            if p >= s.charge_up_to:
-                self._event("info", f"Sovereign recharged to {p}%")
-                return True
-        return True
+        w = self.addons.world
+        rc = self.addons.recharge
+        ok = rc.run(lambda: runner.run(r), lambda: (w.power, w.power_updated), self._abort.wait,
+                    self.settings.addons.sovereign.charge_up_to, time.monotonic)
+        self._event("info" if rc.state.value == "complete" else "warning", f"Sovereign: {rc.last_message}")
+        return ok
 
     def _ensure_lullaby_mode(self) -> None:
-        """Lullaby rod: press the mode key until the chosen mode's name is on screen (once per session)."""
+        """Lullaby rod: switch to the chosen mode, once per Start, and only with proof from the screen."""
         m = self.profile.minigame
         want = m.lullaby_mode
         if m.kind != "lullaby" or not want or want == "Keep current" or self._lullaby_mode_set == want:
             return
-        from fischmacro.vision.ocr import find_keywords
         runner = self._routine_runner()
-        try:
-            for i in range(len(LULLABY_MODES) + 1):
+
+        def read() -> str:
+            try:
                 boxes, _ = runner._ocr()
-                if find_keywords(" ".join(b.text for b in boxes), [want]):
-                    self._lullaby_mode_set = want
-                    self._event("info", f"Lullaby mode: {want}" + (f" ({i} presses)" if i else ""))
-                    return
-                if not self.inputs.press_key(m.mode_key or "q") or self._abort.wait(0.8):
-                    return
-        except Exception:  # noqa: BLE001
-            log.exception("Lullaby mode switch failed")
-        self._lullaby_mode_set = want  # do not keep pressing every catch
-        self._event("warning", f"Could not confirm Lullaby mode '{want}' on screen - left as is")
+            except Exception:  # noqa: BLE001
+                log.debug("Lullaby OCR failed", exc_info=True)
+                return ""
+            return visible_lullaby_mode(" ".join(b.text for b in boxes))
+
+        result = switch_lullaby_mode(want, read, lambda: self.inputs.press_key(m.mode_key or "q"),
+                                     lambda s: self._abort.wait(s))
+        self._lullaby_mode_set = want  # never retried in this session: a wrong guess must not cycle modes
+        self._event("info" if result.ok else "warning", "Lullaby mode: " + result.message)
 
     def run_appraise(self, countdown: float = 3.0) -> str:
         """Auto Appraise: re-roll the held fish until it has one of the chosen traits."""
@@ -725,17 +778,34 @@ class AutomationEngine:
 
     # ------------------------------------------------------------------ auto calibration
     def start_autocalibration(self, seconds: float = 120.0) -> None:
-        """Watch the screen until a reel minigame is seen, then calibrate the profile from it."""
+        """Watch the screen while the user plays a reel; calibrate from many agreeing looks (see
+        vision.calibration_session). Saved only after the result passes a check with the real detectors."""
+        from fischmacro.vision.calibration_session import CalibrationSession
         self.start_vision()
         self.autocal.clear()
         self.autocal_result = None
+        self.cal_session = CalibrationSession()
         self._autocal_wizard_until = time.monotonic() + seconds
-        self.autocal_status = "Watching... cast and play one reel minigame manually (or start automation)."
-        self._event("info", "Auto-calibration started - fish once so the minigame can be found")
+        try:
+            win = self.source.locate() if self.source is not None else None
+        except Exception:  # noqa: BLE001
+            win = None
+        if not self.simulated and (win is None or not win.found):
+            self._autocal_wizard_until = 0.0
+            self.cal_session.report.state = "failed"
+            self.cal_session.report.reason = "Roblox is not open (no game window found) - open it and try again"
+            self.autocal_status = self.cal_session.report.text()
+            return
+        self.autocal_status = ("Watching. In Roblox: hold your rod, cast, and play the reel minigame by hand until "
+                               "this says it is done (about 3-10 s of reel). Nothing is changed until the result "
+                               "has been checked.")
+        self._event("info", "Calibration started - play one reel minigame")
 
     def cancel_autocalibration(self) -> None:
         self._autocal_wizard_until = 0.0
-        self.autocal_status = "Auto-calibration cancelled."
+        if self.cal_session is not None:
+            self.cal_session.cancel()
+        self.autocal_status = "Auto-calibration cancelled - nothing was changed."
 
     @property
     def autocalibrating(self) -> bool:
@@ -746,9 +816,11 @@ class AutomationEngine:
         running = self._status == Status.RUNNING
         st = self.fsm.state.value
         adapt = running and self.profile.detection.auto_adapt and st in ("SHAKE", "REELING")
-        if self._autocal_wizard_until and not wizard and self.autocal_result is None and \
-                self.autocal_status.startswith("Watching"):
-            self.autocal_status = "Auto-calibration timed out - no reel minigame was seen."
+        if self._autocal_wizard_until and not wizard and self.cal_session is not None and not self.cal_session.done:
+            self.cal_session.report.state = "failed"
+            self.cal_session.report.reason = (f"timed out after {self.cal_session.report.found} good look(s) - "
+                                              "nothing was changed. Play a reel minigame while it watches")
+            self.autocal_status = self.cal_session.report.text()
         self.autocal.active = wizard or adapt
         if not self.autocal.active:
             if self.autocal.frames:
@@ -767,6 +839,10 @@ class AutomationEngine:
             self._fish_missing_since = None
         span = (self.autocal.frames[-1][0] - self.autocal.frames[0][0]) if len(self.autocal.frames) > 1 else 0.0
         if span < (2.0 if wizard else 0.9) or now - self._last_autocal_try < 0.5:
+            return
+        if wizard and self.cal_session is not None:
+            self._last_autocal_try = now
+            self._calibration_look()
             return
         reel_lost = (st == "SHAKE" and now - self.fsm.ctx.entered > 1.2 and now - self._last_shake_seen > 0.6
                      and not obs.reel.ui_present)
@@ -795,6 +871,34 @@ class AutomationEngine:
                 self.on_profile_changed("autocal" if wizard else "adapt",
                                         {"old_bar": before["bar"], "old_fish": before["fish"],
                                          "new_bar": d.bar_color, "new_fish": d.fish_color})
+
+    def _calibration_look(self) -> None:
+        """One look for the calibration session; finishes (and saves) once the looks agree and check out."""
+        sess = self.cal_session
+        res = self.autocal.run()
+        sess.add(res, self.autocal.full_frames[-1] if self.autocal.full_frames else None)
+        if sess.report.state == "validating":
+            sess.validate(self.profile)
+        rep = sess.report
+        self.autocal_status = rep.text()
+        if not sess.done or rep.state == "validating":
+            return
+        self._autocal_wizard_until = 0.0
+        if rep.state != "ok":
+            self._event("autocal", self.autocal_status)
+            return
+        d = self.profile.detection
+        before = {"bar": d.bar_color, "fish": d.fish_color}
+        with self._lock:
+            changed = apply_result(self.profile, rep.result, regions=True)
+            self.vision.reset_background()
+        self.autocal_result = rep.result
+        self.autocal_status = rep.text() + (". Changed: " + ", ".join(changed) if changed else
+                                            ". Nothing needed to change.")
+        self._event("autocal", self.autocal_status)
+        if changed and self.on_profile_changed:
+            self.on_profile_changed("autocal", {"old_bar": before["bar"], "old_fish": before["fish"],
+                                                "new_bar": d.bar_color, "new_fish": d.fish_color})
 
     def _on_fsm_error(self, frame: Frame, obs: Observation) -> None:
         self.inputs.release_all()

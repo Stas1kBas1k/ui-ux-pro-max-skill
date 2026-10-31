@@ -83,7 +83,7 @@ class RiskDialog(QDialog):
 class MainWindow(QMainWindow):
     NAV = [("dashboard", "Dashboard"), ("fishing", "Fishing"), ("addons", "Add-ons"), ("hunts", "Hunts"),
            ("assistant", "Assistant"), ("calibration", "Calibration"), ("profiles", "Profiles"),
-           ("settings", "Settings"), ("logs", "Logs & Stats")]
+           ("settings", "Settings"), ("logs", "Logs & Stats"), ("diagnostics", "Diagnostics")]
     CALIBRATION = 5
 
     def __init__(self, ctx):
@@ -126,8 +126,10 @@ class MainWindow(QMainWindow):
         self.settings_hub.addTab(self.settings, "General")
         self.settings_hub.addTab(self.hotkeys, "Hotkeys")
         self.logs = LogsPage(ctx)
+        from fischmacro.ui.pages.diagnostics import DiagnosticsPage
+        self.diagnostics = DiagnosticsPage(ctx)
         for page in (self.dashboard, self.fishing, self.addons, self.hunts, self.assistant, self.vision,
-                     self.profiles, self.settings_hub, self.logs):
+                     self.profiles, self.settings_hub, self.logs, self.diagnostics):
             self.stack.addWidget(page)
 
         self.dashboard.start_requested.connect(self.start_automation)
@@ -139,6 +141,7 @@ class MainWindow(QMainWindow):
         self.dashboard.vision_requested.connect(lambda: self.select_page(self.CALIBRATION))
         self.dashboard.autocal_requested.connect(self._start_autocal)
         self.dashboard.fishing_requested.connect(lambda: self.select_page(1))
+        self.dashboard.wizard_requested.connect(self.open_setup_wizard)
         self.vision.calibrate_requested.connect(self.toggle_calibration)
         self.vision.snapshot_requested.connect(self.diagnostic_snapshot)
         self.vision.overlay_toggled.connect(self.set_overlay)
@@ -151,7 +154,7 @@ class MainWindow(QMainWindow):
         self.tray.set_visible(ctx.settings.notifications.tray_icon)
         ctx.settings_changed.connect(self._on_settings_changed)
         ctx.notice.connect(self._on_notice)
-        for i in range(len(self.NAV)):
+        for i in range(min(9, len(self.NAV))):
             QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, activated=lambda i=i: self.select_page(i))
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.poll)
@@ -371,8 +374,19 @@ class MainWindow(QMainWindow):
             self.ctx.engine.resume()
             return
         self.ctx.save_profile()
-        if self.ctx.engine.start_automation() and self.ctx.settings.mini.shrink_on_start:
+        # swap to the mini window first: showing windows after the engine focused Roblox took focus back
+        mini = self.ctx.settings.mini.shrink_on_start
+        if mini:
             self.show_mini()
+        if not self.ctx.engine.start_automation():
+            if mini:
+                self.show_full()
+            failed = [f"{n}: {d}" for n, ok, d in self.ctx.engine.start_report if not ok]
+            QMessageBox.warning(self, "Could not start", "\n".join(failed) or "Fishing could not start.")
+
+    def open_setup_wizard(self) -> None:
+        from fischmacro.ui.setup_wizard import SetupWizard
+        SetupWizard(self.ctx, self, set_regions=self.toggle_calibration, start_fishing=self.start_automation).exec()
 
     def _review_risk(self) -> None:
         self.ctx.settings.risk_acknowledged = False
@@ -401,7 +415,6 @@ class MainWindow(QMainWindow):
             g = self.geometry()
             self.mini.move(g.right() - self.mini.width() - 24, g.top() + 60)
         self.mini.show()
-        self.mini.raise_()
         self.hide()
 
     def show_full(self) -> None:

@@ -25,18 +25,22 @@ PRESETS: list[RodPreset] = [
               "Metronome: clicks only when the pendulum is over a lit section (every click off a section costs "
               "5% progress, so the bar is left alone). Pick the mode on the Fishing page."),
     RodPreset("Stellarwave Melody", ("stellarwave",),
-              {"minigame.kind": "stellarwave", "minigame.keep_reeling": True},
-              "Zodiac wheel: clicks the star sign that matches the one shown. Calibrate the target sign and the "
-              "wheel area once."),
+              {"minigame.kind": "stellarwave", "minigame.keep_reeling": True, "minigame.action": "click"},
+              "Zodiac wheel: 12 signs; the one asked for is shown above the bar (Aries to Pisces order) and "
+              "the macro clicks the matching sign on the bar, checking each click. Calibrate the target sign "
+              "and the sign row once. Clicking is from the community wiki - verify in game."),
     RodPreset("Halibut Harpoon", ("halibut", "harpoon"),
-              {"minigame.kind": "targets", "minigame.keep_reeling": True},
-              "Harpoon targets marked with '!'. Target colour and whether they must be clicked need verifying."),
+              {"minigame.kind": "halibut", "minigame.keep_reeling": True},
+              "Harpoons land on spots marked '!' and add progress while the fish is in the bar. Nothing is "
+              "clicked; the '!' marks are kept from being mistaken for the fish."),
     RodPreset("Pinion's Aria", ("pinion",),
               {"reel.mode": "precision", "reel.mpc_margin": 0.2},
               "Very low control and resilience: precision tracking with a wider safety margin."),
     RodPreset("Migurod", ("migurod", "migu"),
-              {"reel.mode": "precision", "reel.mpc_margin": 0.25},
-              "Extremely low control and negative resilience: precision tracking, large safety margin."),
+              {"reel.mode": "precision", "reel.mpc_margin": 0.25, "minigame.kind": "migu",
+               "minigame.keep_reeling": True},
+              "Extremely low control: precision tracking with a large safety margin. Presses Shift when the "
+              "timing bar's pointer is in the middle. Slashes are not dodged automatically (not documented)."),
     RodPreset("Tryhard / low resilience", ("tryhard",),
               {"reel.mode": "precision", "reel.mpc_margin": 0.2},
               "Any rod with a tiny bar or fast progress drain."),

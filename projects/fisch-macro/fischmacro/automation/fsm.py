@@ -111,6 +111,8 @@ class FishingStateMachine:
         self.stop_requested: str = ""
         self.last_obs: Observation | None = None
         self.history: list[tuple[float, State, State, str]] = []
+        self.time_in_state: dict[str, float] = {}
+        self.cast_bar_seen_count = 0  # casts on which the power bar was seen (enables the cast check)
         self.safe_point_hooks: list = []  # callables(now) run between catches (routines)
 
     # ------------------------------------------------------------------ control
@@ -150,6 +152,8 @@ class FishingStateMachine:
             raise RuntimeError(f"Illegal transition {old.value} -> {new.value}")
         self.history.append((now, old, new, reason))
         del self.history[:-200]
+        # where the time goes (diagnostics and the timing benchmark)
+        self.time_in_state[old.value] = self.time_in_state.get(old.value, 0.0) + max(0.0, now - self.ctx.entered)
         self.state = new
         self.ctx = FsmContext(entered=now, reason=reason)
         if new == State.RECOVERY:
@@ -251,11 +255,21 @@ class FishingStateMachine:
                 return
             if c.jitter is None:
                 c.jitter = random.uniform(1 - cfg.jitter, 1 + cfg.jitter)
-            if t >= cfg.pre_cast_delay * c.jitter:
+            if t >= cfg.pre_cast_delay * c.jitter and (c.attempts == 0 or now - c.t_mark >= 0.25):
                 if self.input.mouse_down():
                     c.phase, c.t_mark = 2, now
             return
         held = now - c.t_mark
+        # Event-driven cast check: once the power bar has been seen on earlier casts, a press that shows no
+        # bar was not taken by the game (too early after a catch, a dropped click). Press again at once
+        # instead of waiting out the whole bite timeout with no line in the water.
+        if (cfg.mode == "perfect" and self.cast_bar_seen_count >= 1 and not c.cast_seen and held >= 0.7
+                and c.attempts < 2 and not (obs.cast.present and self._confident(obs.cast.confidence))):
+            self.input.mouse_up()
+            c.attempts += 1
+            c.phase, c.t_mark = 1, now
+            self.emit("warning", f"Cast did not start (no power bar) - pressing again ({c.attempts}/2)")
+            return
         if obs.reel.ui_present:
             self.input.mouse_up()
             self._go(State.REELING, now, "minigame appeared while casting")
@@ -283,6 +297,8 @@ class FishingStateMachine:
             self.emit("warning", "Cast held for the maximum time - releasing")
         if release:
             self.input.mouse_up()
+            if c.cast_seen:
+                self.cast_bar_seen_count += 1
             self.cycle.perfect_cast = perfect
             self.emit("cast", "Cast" + (" (perfect)" if perfect else ""), perfect=perfect, held=held)
             self._go(State.WAITING_FOR_BITE, now, "cast released")
@@ -349,6 +365,7 @@ class FishingStateMachine:
     def _on_reeling(self, obs: Observation, now: float) -> None:
         cfg = self.profile.reel
         c = self.ctx
+        self.minigame.filter_obs(obs, now)
         if obs.catch_popup.detected:
             self.cycle.catch_popup = True
         if obs.reel.ui_present:

@@ -13,7 +13,7 @@ from fischmacro.ui.lucide import LUCIDE
 ALIASES = {
     "dashboard": "layout-dashboard", "fishing": "fish", "addons": "puzzle", "hunts": "crosshair",
     "vision": "scan-search", "calibration": "scan-search", "profiles": "layers", "settings": "sliders-horizontal",
-    "logs": "scroll-text", "hotkeys": "keyboard", "sovereign": "crown", "totem": "cloud-sun", "appraise": "gem",
+    "logs": "scroll-text", "diagnostics": "activity", "hotkeys": "keyboard", "sovereign": "crown", "totem": "cloud-sun", "appraise": "gem",
     "potion": "flask-conical", "astral": "telescope", "lullaby": "music-4", "rod": "anchor", "alerts": "bell", "assistant": "wand-sparkles", "cast": "zap", "minigame": "music-4",
 }
 

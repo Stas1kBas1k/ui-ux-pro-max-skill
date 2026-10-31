@@ -58,6 +58,7 @@ class SimulatedFischGame:
         self.rod_minigame: str | None = None
         self.mini_action = "click"     # or a key name
         self.mini_period = 1.4         # lullaby pendulum period (s)
+        self.result_seconds = 1.2     # the catch result screen; clicks then do not cast
         self.input_latency = 0.04      # a click lands this long after the frame it was decided on
         self._pending_clicks: list[float] = []
         self._segments: list[tuple[float, float]] = []
@@ -218,7 +219,7 @@ class SimulatedFischGame:
             elif k == "q" and self.state == "reel":
                 self.stats.mode_presses += 1
             elif self.state == "reel" and self.rod_minigame and k == self.mini_action:
-                if self.rod_minigame == "lullaby" and self.input_latency > 0:
+                if self.rod_minigame in ("lullaby", "migu") and self.input_latency > 0:
                     self._pending_clicks.append(self.t + self.input_latency)
                 else:
                     self._mini_action()
@@ -265,6 +266,10 @@ class SimulatedFischGame:
             self._new_signs()
         elif self.rod_minigame == "targets":
             self._new_targets()
+        elif self.rod_minigame == "halibut":
+            self._marks, self._mark_next = [], self.t + 0.8
+        elif self.rod_minigame == "migu":
+            self._migu_at, self._migu_delay = None, self.rng.uniform(1.5, 4.0)
 
     # ------------------------------------------------------------------ rod minigames
     def _new_segments(self) -> None:
@@ -279,14 +284,43 @@ class SimulatedFischGame:
         import math
         return 0.5 + 0.47 * math.sin(2 * math.pi * (self.t + ahead - self.state_t) / self.mini_period)
 
-    _SIGNS = ("circle", "triangle", "square", "cross")
+    # Stellarwave: 12 signs, asked for in a fixed order (Aries..Pisces in game; shapes stand in for the glyphs)
+    _SIGNS = ("circle", "triangle", "square", "cross", "diamond", "pentagon", "hexagon", "star", "plus",
+              "tri_down", "ring", "bars")
 
     def _new_signs(self) -> None:
+        """Signs on the bar are shuffled every catch; the one asked for follows the fixed order."""
         r = self.regions["mini"]
         names = list(self._SIGNS)
         self.rng.shuffle(names)
-        self._signs = [(n, r.x + r.w * (i + 0.5) / 4, r.y + r.h / 2) for i, n in enumerate(names)]
-        self._target_sign = self.rng.choice(names)
+        n = len(names)
+        self._signs = [(nm, r.x + r.w * (i + 0.5) / n, r.y + r.h / 2) for i, nm in enumerate(names)]
+        self._sign_i = 0
+        self._target_sign = self._SIGNS[0]
+
+    # Halibut Harpoon: "!" marks appear on the track; a harpoon lands there later and gives +1% progress
+    # if the fish is inside the bar. Nothing to click.
+    def _halibut_step(self) -> None:
+        if self.t >= self._mark_next:
+            self._marks.append((self.rng.uniform(0.05, 0.95), self.t + 1.5))
+            self._mark_next = self.t + self.rng.uniform(1.0, 2.5)
+        for m in [m for m in self._marks if m[1] <= self.t]:
+            self._marks.remove(m)
+            if self.bar_x <= self.fish_x <= self.bar_x + self.bar_w:
+                self.progress = min(1.0, self.progress + 0.01)
+                self.stats.mini_hits += 1
+
+    # MiguRod: a timing bar shows above the control bar; Shift with the pointer in the middle gives progress
+    def _migu_step(self) -> None:
+        if self._migu_at is None and self.t - self.state_t >= self._migu_delay:
+            self._migu_at = self.t
+        if self._migu_at is not None and self._migu_at >= 0 and self.t - self._migu_at > 2.4:
+            self.stats.mini_misses += 1  # let it run out
+            self._migu_at = -1.0
+
+    def _migu_pointer(self) -> float:
+        import math
+        return 0.5 - 0.47 * math.cos(2 * math.pi * (self.t - self._migu_at) / 2.4)
 
     def _new_targets(self) -> None:
         r = self.regions["mini"]
@@ -305,15 +339,30 @@ class SimulatedFischGame:
             else:
                 self.stats.mini_misses += 1
                 self.progress = max(0.0, self.progress - 0.05)  # as in game: a miss costs 5% progress
+        elif kind == "halibut":
+            return  # nothing to click (mouse presses are the normal reel control)
+        elif kind == "migu":
+            if self._migu_at is None or self._migu_at < 0:
+                self.stats.mini_misses += 1  # Shift with no timing bar
+                return
+            if abs(self._migu_pointer() - 0.5) <= 0.06:
+                self.stats.mini_hits += 1
+                self.progress = min(1.0, self.progress + 0.10)
+            else:
+                self.stats.mini_misses += 1
+            self._migu_at = -1.0
         elif kind in ("stellarwave", "targets"):
             cx, cy = self.cursor[0] / self.width, self.cursor[1] / self.height
             if kind == "stellarwave":
-                hit = [n for n, x, y in self._signs if abs(cx - x) < 0.035 and abs(cy - y) < 0.05]
+                half = self.regions["mini"].w / len(self._signs) / 2
+                hit = [n for n, x, y in self._signs if abs(cx - x) < half and abs(cy - y) < 0.05]
                 if not hit:
                     return  # clicks outside the wheel do nothing
                 if hit[0] == self._target_sign:
                     self.stats.mini_hits += 1
-                    self._new_signs()
+                    self.progress = min(1.0, self.progress + 0.03)
+                    self._sign_i += 1
+                    self._target_sign = self._SIGNS[self._sign_i % len(self._SIGNS)]
                 else:
                     self.stats.mini_misses += 1
             else:
@@ -338,8 +387,22 @@ class SimulatedFischGame:
             cv2.rectangle(img, (px - 2, y), (px + 2, y + h), k.get("pointer", (255, 255, 255)), -1)
         elif kind == "stellarwave":
             self._draw_sign(img, self._target_sign, self.regions["mini_target"].center(), 0.035)
+            gap = self.regions["mini"].w * self.width / len(self._signs) / self.height
             for n, sx, sy in self._signs:
-                self._draw_sign(img, n, (sx, sy), 0.03)
+                self._draw_sign(img, n, (sx, sy), min(0.03, gap * 0.33))
+        elif kind == "halibut":
+            x, y, rw, rh = self._rect("reel")
+            for mx, _ in self._marks:
+                px = x + int(mx * rw)
+                cv2.line(img, (px, y + 2), (px, y + int(rh * 0.6)), (255, 255, 255), 2)
+                cv2.circle(img, (px, y + int(rh * 0.82)), 2, (255, 255, 255), -1)
+        elif kind == "migu" and self._migu_at is not None and self._migu_at >= 0:
+            x, y, w, h = self._rect("mini")
+            ty0, ty1 = y + int(h * 0.35), y + int(h * 0.65)
+            cv2.rectangle(img, (x, ty0), (x + w, ty1), (60, 40, 40), -1)
+            cv2.rectangle(img, (x + int(0.44 * w), ty0), (x + int(0.56 * w), ty1), (74, 213, 255), -1)
+            px = x + int(self._migu_pointer() * w)
+            cv2.rectangle(img, (px - 2, y), (px + 2, y + h), (255, 255, 255), -1)
         elif kind == "targets":
             for tx, ty in self._targets:
                 cv2.circle(img, (int(tx * self.width), int(ty * self.height)), max(4, int(self.height * 0.012)),
@@ -349,7 +412,29 @@ class SimulatedFischGame:
         cx, cy = int(centre[0] * self.width), int(centre[1] * self.height)
         r = int(size * self.height)
         col, t = (255, 255, 255), max(2, r // 6)
-        if name == "circle":
+        poly = lambda k, rot=0.0: np.array([(cx + r * np.cos(rot + 2 * np.pi * i / k),  # noqa: E731
+                                              cy + r * np.sin(rot + 2 * np.pi * i / k)) for i in range(k)], np.int32)
+        if name == "diamond":
+            cv2.polylines(img, [poly(4)], True, col, t)
+        elif name == "pentagon":
+            cv2.polylines(img, [poly(5, -np.pi / 2)], True, col, t)
+        elif name == "hexagon":
+            cv2.polylines(img, [poly(6)], True, col, t)
+        elif name == "star":
+            p = poly(5, -np.pi / 2)
+            cv2.polylines(img, [p[[0, 2, 4, 1, 3]]], True, col, t)
+        elif name == "plus":
+            cv2.line(img, (cx, cy - r), (cx, cy + r), col, t)
+            cv2.line(img, (cx - r, cy), (cx + r, cy), col, t)
+        elif name == "tri_down":
+            cv2.polylines(img, [np.array([(cx, cy + r), (cx - r, cy - r), (cx + r, cy - r)], np.int32)], True, col, t)
+        elif name == "ring":
+            cv2.circle(img, (cx, cy), r, col, t)
+            cv2.circle(img, (cx, cy), max(1, r // 3), col, -1)
+        elif name == "bars":
+            for dy in (-r // 2, r // 2):
+                cv2.line(img, (cx - r, cy + dy), (cx + r, cy + dy), col, t)
+        elif name == "circle":
             cv2.circle(img, (cx, cy), r, col, t)
         elif name == "square":
             cv2.rectangle(img, (cx - r, cy - r), (cx + r, cy + r), col, t)
@@ -391,7 +476,11 @@ class SimulatedFischGame:
                     self._set("idle")
             elif s == "reel":
                 self._reel_step(dt)
-            elif s == "result" and self.t - self.state_t > 1.2:
+                if self.state == "reel" and self.rod_minigame == "halibut":
+                    self._halibut_step()
+                elif self.state == "reel" and self.rod_minigame == "migu":
+                    self._migu_step()
+            elif s == "result" and self.t - self.state_t > self.result_seconds:
                 self._set("idle")
             elif s == "reconnecting" and self.t - self.state_t > 2.0:
                 self._set("idle")

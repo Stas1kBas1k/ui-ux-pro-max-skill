@@ -152,7 +152,7 @@ class VisionEngine:
             checked.append("catch_popup")
         mcfg = p.minigame
         if mcfg.kind != "none" and "mini" in wanted and (r := region("mini")):
-            if mcfg.kind == "lullaby":
+            if mcfg.kind in ("lullaby", "migu"):
                 mcrop = frame.crop(r)
                 obs.timing = mg.detect_timing(mcrop, mcfg.pointer_color, mcfg.pointer_tolerance,
                                               mcfg.lit_color, mcfg.lit_tolerance, mcfg.axis)

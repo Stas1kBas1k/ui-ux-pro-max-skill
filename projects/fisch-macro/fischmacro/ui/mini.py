@@ -17,11 +17,15 @@ class MiniWindow(QWidget):
     stop_requested = Signal()
 
     def __init__(self, on_top: bool = True, opacity: float = 0.94):
-        flags = Qt.Tool | Qt.FramelessWindowHint
+        # never takes keyboard focus: showing it right after Start used to pull focus away from Roblox, and the
+        # macro then waited for focus that never came back
+        flags = Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus
         if on_top:
             flags |= Qt.WindowStaysOnTopHint
         super().__init__(None, flags)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setFocusPolicy(Qt.NoFocus)
         self.setWindowOpacity(opacity)
         self.setWindowTitle("Fisch Macro")
         self._drag: QPoint | None = None

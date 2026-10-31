@@ -227,6 +227,11 @@ and between versions.
 
 ## First-run setup
 
+The quickest way is **Dashboard → Setup wizard**: eight short steps (app setup, game preparation, rod and
+skin, detection test, calibration, validation, manual fallback, ready), each showing live what the macro
+sees. It never opens on its own. The full repair notes, calibration tutorial and rod matrix are in
+[docs/REPAIR_REPORT.md](docs/REPAIR_REPORT.md).
+
 The dashboard checklist walks you through these and ticks them off by itself: risk notice, real game (not the
 test mode), Roblox window found, **Windows display scale at 100%** (higher scaling can make the bar drift),
 rod picked (or Automatic), first catch. **No calibration is needed** for the reel.
@@ -282,8 +287,9 @@ rod picked (or Automatic), first catch. **No calibration is needed** for the ree
 | Jittery input on a noisy detection | raise **Velocity smoothing** |
 | Tiny bar / fish escapes on tryhard rods | switch **Tracking mode** to **precision** |
 
-**Lullaby**: if clicks land just after the lit section, raise *Input lead* (ms); if they land early, lower it.
-Use *Mode key presses per catch* to choose the mode.
+**Lullaby**: the input delay is learned from hits. Pick the mode on the Fishing page: it is switched once per
+Start, and only while the mode's name can be read on screen (each Q press must show a new mode name, or
+switching stops). Q is never pressed blindly or during a catch.
 
 **Shake**: if buttons are missed, widen *Shake tolerance* or use a template. If clicks land on scenery, lower the
 tolerance, raise *Frames before clicking*, or use navigation mode.
@@ -311,6 +317,9 @@ once.
 
 | Problem | Fix |
 |---|---|
+| Start seems to do nothing | Open *Diagnostics*: *Last Start* lists every start stage and which one failed. "Click into Roblox" means the game window is not focused; the macro tries to bring it forward for a few seconds after Start, then waits. |
+| Lullaby mode changes after Start | Fixed: the mode is only switched while its name is readable, and each press is checked. If the name is not on screen, nothing is pressed (the log says so). |
+| Sovereign recharge keeps using relics | Fixed: power is read only from text with a % sign, two readings must agree, one attempt uses at most 4 relics, each must raise the power, and after 3 failed attempts the add-on stops for the session. Pick the power readout box first. |
 | "Game window not found" | Roblox must be open and not minimised. Check *Game window title*. Use *monitor* capture mode as a fallback. |
 | Inputs pause with "Roblox is not focused" | Click into Roblox. Inputs are intentionally paused while you use other windows. |
 | Hotkeys do nothing in game | The status bar must say *Global hotkeys on*. Security software can block keyboard hooks. Run Roblox and the app at the same privilege level. |
@@ -419,8 +428,10 @@ Verified in this repository (automated tests, run on Linux and in the Windows CI
 - The appearance of shake buttons and their colour. Template mode is the most robust option.
 - Perfect-cast detection, disconnect detection and auto reconnect (marked *experimental* in the UI).
 - Behaviour after Fisch UI updates. Auto-adapt handles colour changes; re-run Auto-calibrate after layout changes.
-- Rod minigames: the Lullaby lead time, Stellarwave region and sign colour, and whether Halibut Harpoon targets
-  need clicking at all.
+- Rod minigames: the Lullaby lead time; for Stellarwave, the sign row's position and that signs are chosen by
+  clicking (the wiki says "click the correct star sign"); for MiguRod, the timing bar's look and hit window
+  (slash dodging is not automated: how it works is not documented); for Halibut Harpoon, that the '!' marks
+  sit on the reel track. Halibut is never clicked.
 - Add-ons: the Sovereign gamepass recharge flow, the appraise button names, the inventory key, and where
   the power and world readouts appear on screen. They are marked *verify in game*.
 

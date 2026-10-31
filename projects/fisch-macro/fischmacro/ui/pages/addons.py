@@ -224,7 +224,13 @@ class AddonsPage(QWidget):
         if not self.isVisible():
             return
         w = self.ctx.engine.addons.world
-        self.power_val.setText(f"{w.power}%" if w.power is not None else "---")
+        s = self.ctx.settings.addons.sovereign
+        rc = self.ctx.engine.addons.recharge
+        if not s.power_region.enabled:
+            self.power_val.setText("Pick the power readout first")
+        else:
+            self.power_val.setText((f"{w.power}%" if w.power is not None else "---")
+                                   + (f" · {rc.state.value}" if rc.state.value != "idle" else ""))
         self.weather_val.setText(w.weather or "---")
         self.time_val.setText(w.time or "---")
         self.surge_val.setText(w.surge or ("None" if w.updated else "---"))

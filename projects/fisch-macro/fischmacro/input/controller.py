@@ -46,6 +46,41 @@ class RecordingBackend(InputBackend):
         self.events.append(("key_down" if down else "key_up", key))
 
 
+class ObservedBackend(InputBackend):
+    """Wraps a backend and keeps the last inputs for the diagnostics view. With ``dry_run`` nothing is
+    passed on: the macro runs and decides as usual, but no input reaches the game (observe-only mode)."""
+
+    def __init__(self, inner: InputBackend, dry_run: bool = False, keep: int = 60):
+        from collections import deque
+        self.inner = inner
+        self.dry_run = dry_run
+        self.name = f"{inner.name} (observe only)" if dry_run else inner.name
+        self.recent: deque[tuple[float, str, bool, str]] = deque(maxlen=keep)  # (time, what, sent, error)
+
+    def _do(self, what: str, fn) -> None:
+        if self.dry_run:
+            self.recent.append((time.time(), what, False, "observe only"))
+            return
+        try:
+            fn()
+        except Exception as exc:  # the controller decides what a failed input means
+            self.recent.append((time.time(), what, False, str(exc)))
+            raise
+        self.recent.append((time.time(), what, True, ""))
+
+    def move(self, x, y):
+        self._do(f"move {int(x)},{int(y)}", lambda: self.inner.move(x, y))
+
+    def button(self, down, button="left"):
+        self._do(f"{button} {'down' if down else 'up'}", lambda: self.inner.button(down, button))
+
+    def key(self, down, key):
+        self._do(f"key {key} {'down' if down else 'up'}", lambda: self.inner.key(down, key))
+
+    def type_text(self, text, delay):
+        self._do(f"type {len(text)} chars", lambda: self.inner.type_text(text, delay))
+
+
 class PynputBackend(InputBackend):
     name = "pynput"
 

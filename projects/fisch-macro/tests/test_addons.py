@@ -6,7 +6,8 @@ from fischmacro.profiles.schema import AddonsConfig, AppSettings, Profile
 
 
 @pytest.mark.parametrize("text,expected", [("Power 87%", 87), ("SOVEREIGN 100 %", 100), ("45/100", 45),
-                                            ("charge: 9", 9), ("no digits", None), ("250%", None)])
+                                            ("charge: 9", None), ("x12 bait 3", None), ("no digits", None),
+                                            ("250%", None)])
 def test_parse_power(text, expected):
     assert parse_power(text) == expected
 
@@ -33,8 +34,11 @@ def test_sovereign_recharges_only_below_threshold():
     s = _svc()
     s.cfg.sovereign.enabled = True
     s.on_power_text("Power 95%", 10.0)
+    s.on_power_text("Power 95%", 10.5)
     assert s.plan(11.0) == []
     s.on_power_text("Power 80%", 12.0)
+    assert s.world.power == 95  # one reading is not enough: a misread must not start a recharge
+    s.on_power_text("Power 80%", 12.5)
     plan = s.plan(13.0)
     assert len(plan) == 1 and plan[0][1].steps[0].value == "Enchant Relic"
     assert s.plan(200.0) == []  # stale reading: do nothing
@@ -94,8 +98,11 @@ def test_engine_builds_readers_from_settings():
     st.addons.totem.enabled = True
     st.addons.sovereign.enabled = True
     st.rod_detect.enabled = True
+    assert [w.kind for w in eng.active_watchers()] == ["hunt", "world", "rod"]  # power spot not picked yet
+    st.addons.sovereign.power_region.enabled = True
     ws = eng.active_watchers()
     assert [w.kind for w in ws] == ["hunt", "world", "power", "rod"]
     assert ws[0].keywords == "Megalodon|Kraken|My Event"
     eng._on_watch_text(ws[2], "Power 42%", 1.0)
+    eng._on_watch_text(ws[2], "Power 42%", 1.5)
     assert eng.addons.world.power == 42
