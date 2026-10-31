@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit,
+    QFileDialog, QHBoxLayout, QInputDialog, QLineEdit, QListView, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit,
     QPushButton, QVBoxLayout, QWidget,
 )
 
@@ -27,6 +28,15 @@ class ProfilesPage(QWidget):
         row.setSpacing(14)
         left = Card("Saved profiles")
         self.list = QListWidget()
+        self.list.setObjectName("profileGrid")
+        self.list.setViewMode(QListView.ListMode)
+        self.list.setFlow(QListView.LeftToRight)
+        self.list.setWrapping(True)
+        self.list.setResizeMode(QListView.Adjust)
+        self.list.setMovement(QListView.Static)
+        self.list.setIconSize(QSize(44, 44))
+        self.list.setUniformItemSizes(True)
+        self.list.setSpacing(4)
         self.list.setMinimumWidth(260)
         self.list.itemDoubleClicked.connect(lambda _: self._activate())
         left.add(self.list)
@@ -64,6 +74,10 @@ class ProfilesPage(QWidget):
         self.notes.setPlaceholderText("e.g. tuned for Rod of the Depths, 1920x1080 borderless, 125% DPI")
         self.notes.textChanged.connect(self._save_notes)
         right.add(self.notes)
+        rec = QPushButton(icon("reset"), "  Reset to recommended settings")
+        rec.setToolTip("The rod's recommended reel and minigame settings; your screen calibration is kept")
+        rec.clicked.connect(self._reset_recommended)
+        right.add(rec)
         reset = QPushButton(icon("reset"), "  Reset regions to defaults")
         reset.clicked.connect(self._reset_regions)
         right.add(reset)
@@ -83,8 +97,18 @@ class ProfilesPage(QWidget):
     def reload(self) -> None:
         names = self.ctx.profiles.names()
         self.list.clear()
+        from fischmacro.ui.rod_art import rod_pixmap
         for n in names:
-            item = QListWidgetItem(icon("fish", C["primary_hi"] if n == self.ctx.profile.name else C["faint"]), n)
+            try:
+                prof = self.ctx.profiles.load(n) if n != self.ctx.profile.name else self.ctx.profile
+                rod, skin, kind = prof.equipment.rod_name, prof.equipment.skin, prof.minigame.kind
+            except ProfileError:
+                rod, skin, kind = "", "", "none"
+            sub = (rod or "Any rod") + (f" · {skin}" if skin else "") + ("  ·  in use" if n == self.ctx.profile.name else "")
+            item = QListWidgetItem(QIcon(rod_pixmap(rod or n, 44, kind)), f"{n}\n{sub}")
+            item.setData(Qt.UserRole, n)
+            item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            item.setSizeHint(QSize(224, 70))
             self.list.addItem(item)
             if n == self.ctx.profile.name:
                 self.list.setCurrentItem(item)
@@ -102,7 +126,7 @@ class ProfilesPage(QWidget):
 
     def _selected(self) -> str | None:
         it = self.list.currentItem()
-        return it.text() if it else None
+        return it.data(Qt.UserRole) if it else None
 
     def _err(self, exc: Exception) -> None:
         QMessageBox.warning(self, "Profiles", str(exc))
@@ -205,6 +229,23 @@ class ProfilesPage(QWidget):
     def _save_notes(self) -> None:
         self.ctx.profile.notes = self.notes.toPlainText()
         self.ctx.profile_edited()
+
+    def _reset_recommended(self) -> None:
+        if QMessageBox.question(self, "Reset to recommended",
+                                f"Put '{self.ctx.profile.name}' back to the recommended settings for its rod? "
+                                "Screen regions are kept.") != QMessageBox.Yes:
+            return
+        from fischmacro.profiles.library import RodLibrary
+        p = self.ctx.profile
+        fresh = RodLibrary(self.ctx.profiles, self.ctx.settings.library).recommended(
+            p.equipment.rod_name or "Any rod", p.equipment.skin or "Default", p)
+        fresh.name, fresh.regions, fresh.equipment.rod_name, fresh.notes = p.name, p.regions, p.equipment.rod_name, p.notes
+        from fischmacro.automation.engine import Status
+        if self.ctx.engine.status in (Status.RUNNING, Status.PAUSED):
+            return self._err(ProfileError("Stop fishing before resetting the active profile."))
+        self.ctx.profiles.save(fresh)
+        self.ctx._use_profile(fresh)
+        self.reload()
 
     def _reset_regions(self) -> None:
         if QMessageBox.question(self, "Reset regions", "Reset all screen regions of this profile to the defaults?") \

@@ -47,6 +47,15 @@ def diagnostics_html(eng) -> str:
             ("Progress", f"{obs.progress.fill:.2f}" if obs.progress.present else "-"),
             ("Checked", ", ".join(obs.checked) or "-"),
         ]) + "</table>"))
+    tr = f.tracker.state
+    out.append(_section("Fish tracking (filtered)", "<table>" + _rows([
+        ("Usable", "yes" if tr.usable else "no" + (f" (lost {tr.lost_for:.2f} s)" if tr.lost_for else "")),
+        ("Fish", f"{tr.fish_x:.3f}, moving {tr.direction} at {abs(tr.fish_v):.2f}/s" if tr.usable else "-"),
+        ("Bar", f"{tr.bar_left:.3f}-{tr.bar_right:.3f}" if tr.usable and tr.bar_right > tr.bar_left else "-"),
+        ("Confidence", f"{tr.confidence:.0%}" + ("  (bridging a missed frame)" if tr.coasting else "")),
+        ("Wrong detections ignored", tr.rejected),
+        ("Controller", f"{f.reel.debug.reason} · duty {f.reel.debug.duty:.2f}" if hasattr(f.reel.debug, "reason") else "-"),
+    ]) + "</table>"))
     if eng.start_report:
         out.append(_section("Last Start", "<table>" + _rows(
             [(n, ("ok" if ok else "FAILED") + (f" - {d}" if d else "")) for n, ok, d in eng.start_report]) + "</table>"))

@@ -44,6 +44,7 @@ class Observation:
     timing: mg.TimingResult = field(default_factory=mg.TimingResult)
     match: mg.MatchResult = field(default_factory=mg.MatchResult)
     targets: mg.TargetsResult = field(default_factory=mg.TargetsResult)
+    prompt_image: object = None           # crop around a rod event, for reading its key prompt (MiguRod)
     frozen_seconds: float = 0.0
     checked: tuple[str, ...] = ()
     processing_ms: float = 0.0
@@ -155,7 +156,12 @@ class VisionEngine:
             if mcfg.kind == "migu":
                 # the counterattack bar sits above the reel; search a taller box and find the red bar in it
                 area = Region(r.x, max(0.0, r.y - 0.10), r.w, min(1.0, r.h + 0.14))
-                obs.timing = mg.detect_migu(frame.crop(area) if frame.crop(area) is not None else frame.crop(r))
+                acrop = frame.crop(area)
+                if acrop is None:
+                    acrop = frame.crop(r)
+                obs.timing = mg.detect_migu(acrop)
+                if obs.timing.present:
+                    obs.prompt_image = acrop
             elif mcfg.kind == "lullaby":
                 mcrop = frame.crop(r)
                 obs.timing = mg.detect_timing(mcrop, mcfg.pointer_color, mcfg.pointer_tolerance,

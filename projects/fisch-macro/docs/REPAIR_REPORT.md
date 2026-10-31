@@ -146,3 +146,89 @@ make a profile for that skin.
 - The Sovereign relic flow, the Halibut Harpoon Gun key (Q, off by default) and the post-catch timings are
   unverified.
 - The OCR-based Lullaby mode check depends on the mode name being visible on screen.
+
+## 11. Tracking engine, rod modules, Rod Library and redesign
+
+### Fish tracking
+**Root cause:** the reel step steered on raw detections. When the fish was missed for a single frame (a
+zodiac glyph, the fish over the bar edge, a "!" icon), the mouse was released at once. A single wrong
+detection was steered on as if it were true.
+
+**Fix:** `automation/tracking.py` follows the fish and the bar between frames (position plus speed),
+which the reel controller now steers on. It:
+- ignores a far-away detection until it has been seen 3 times;
+- catches up within a few frames when the fish turns or speeds up;
+- carries on along the fish's path for up to 0.3 s when the fish is missed;
+- reports the fish as lost after that, rather than steering on a guess;
+- reports direction, speed and confidence.
+
+The existing PD/MPC controller, which predicts ahead, learns the hover duty and adapts to small or
+low-control bars, is unchanged and gets the cleaner input.
+
+| Simulator, 30 catches, difficulty 0.6 | Fish inside the bar (old → new) | Time per catch (old → new) |
+|---|---|---|
+| Clean detection | 87.5% → 87.2% (same) | 8.2 s → 8.3 s |
+| 20% of frames miss the fish, 5% put it in the wrong place | 70.1% → **84.6%** | 10.0 s → **8.4 s** |
+
+Live engine on the test game (`python -m fischmacro.simulation.perf`):
+
+| Measure | Result |
+|---|---|
+| Frame rate | 77 fps |
+| Capture + vision while reeling (p50 / p95) | 2.8 / 3.8 ms |
+| Vision per frame (p95) | 8.5 ms |
+| CPU use | 43% of one core |
+| Peak memory | 127 MB |
+| Engine start | 20 ms |
+| Window build | ~0.7 s |
+
+Screen capture on Windows costs more than the simulator's capture; measure it with the Diagnostics page.
+
+### Rod modules and on-screen prompts
+- Each special rod is its own module in `fischmacro/rods/`, and `rods/__init__.py` lists, for each rod:
+  - its settings, split into simple and advanced;
+  - the on-screen events it handles;
+  - how well it is verified.
+- The modules are `lullaby`, `stellarwave`, `migu`, `halibut` and `targets`. Standard reeling is shared
+  by all rods.
+- `rods/prompts.py` reads key prompts off the screen with OCR in the background (~0.7 s per read on this
+  machine), because OCR is too slow for every frame:
+  - It reads "SHIFT" from the real MiguRod screenshot.
+  - Only allow-listed keys are ever pressed: shift, space, ctrl, alt.
+  - MiguRod presses the key shown, at the moment the line reaches the diamond. If the bar is still up a
+    second later, the press did not register, and it allows exactly one more press.
+- Not automated, because neither mechanic is confirmed:
+  - picking Stellarwave signs (the solver exists but is off);
+  - dodging MiguRod slashes.
+
+### Rod Library, profiles, UI
+- **Rod Library:** about 200 rods as cards with generated artwork.
+  - Search, plus filters: Special minigame, Favourites, Recent, Configured.
+  - Skin cards for each rod.
+  - Each rod (and each skin that needs it) gets its own saved profile, built from your screen
+    calibration plus the rod's recommended settings.
+  - Changes are a draft until Save, with an "Unsaved changes" marker.
+  - Simple settings: tracking mode and sensitivity. Everything technical is under Advanced.
+- **Navigation:** five sections.
+  - Dashboard: status cards plus Start / Pause / Emergency stop.
+  - Rod Library.
+  - Automation: Fishing, Setup & tests, Add-ons, Hunts, Assistant.
+  - Profiles: cards, plus "Reset to recommended".
+  - Settings: General, Hotkeys, Vision & calibration, Diagnostics, Logs & stats, About.
+- **Setup & tests** replaces the old manual screen with six plain steps:
+  1. Rod and skin.
+  2. Calibration.
+  3. Test detection.
+  4. Test the rod minigame (runs the rod's minigame in the test game).
+  5. Reset.
+  6. Guided setup.
+- **Logo:** a new SVG logo in the sidebar, on the splash screen and as the window and exe icon. The new
+  default theme is "Nebula".
+
+### Needs a live Fisch session
+1. MiguRod: the counterattack bar's position above the reel, and the timing of the press (Diagnostics →
+   "Rod minigame log" shows each press).
+2. Stellarwave: how a sign is picked (needed before sign picking can be switched on).
+3. Tracking on your PC: start with *Observe only* on, play a reel by hand, and check "Fish tracking" in
+   Diagnostics.
+4. Skins: there is no built-in skin catalogue. Add a skin from its rod's card, then calibrate it once.

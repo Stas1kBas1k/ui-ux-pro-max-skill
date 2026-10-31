@@ -54,6 +54,9 @@ def test_fish_only_steering_when_bar_unclear():
     assert inputs.is_held()
     o.reel = ReelResult(ui_present=True, fish_found=True, fish_x=0.1, fish_confidence=1.0)
     fsm.update(o, t + 0.1)
+    assert inputs.is_held(), "one frame far away is treated as a wrong detection"
+    for k in range(2, 4):  # seen there on 3 frames: the fish really moved
+        fsm.update(o, t + 0.05 * k + 0.05)
     assert not inputs.is_held()
     assert any("following the fish" in m for k, m, _ in events if k == "warning")
 

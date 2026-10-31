@@ -6,6 +6,13 @@ main window is then rebuilt so every widget picks the new colours up.
 from __future__ import annotations
 
 THEMES: dict[str, dict[str, str]] = {
+    # default: near-black with a violet -> cyan accent, matching the logo
+    "Nebula": {
+        "bg": "#090A10", "sidebar": "#0C0D15", "surface": "#11121C", "card": "#141624", "card_hi": "#1B1E30",
+        "border": "#21243A", "border_hi": "#30344F", "text": "#EEF0F7", "muted": "#9AA1B9", "faint": "#5F6680",
+        "primary": "#7C5CFF", "primary_hi": "#A592FF", "on_primary": "#FFFFFF", "accent": "#3BE0F5",
+        "success": "#34D399", "warning": "#FBBF24", "danger": "#F43F5E", "danger_hi": "#FB7185",
+    },
     "Midnight Violet": {
         "bg": "#111216", "sidebar": "#15161C", "surface": "#1A1B22", "card": "#1F2029", "card_hi": "#262733",
         "border": "#2C2D3A", "border_hi": "#3A3B4C", "text": "#ECEDF3", "muted": "#A2A8B8", "faint": "#6B7182",
@@ -43,7 +50,7 @@ THEMES: dict[str, dict[str, str]] = {
         "success": "#00FF7F", "warning": "#FFB300", "danger": "#FF4D4D", "danger_hi": "#FF8080",
     },
 }
-DEFAULT_THEME = "Midnight Violet"
+DEFAULT_THEME = "Nebula"
 TEXT_SIZES = {"Compact": 9.5, "Comfortable": 10.5, "Large": 12.0}
 
 C: dict[str, str] = dict(THEMES[DEFAULT_THEME])
@@ -282,4 +289,37 @@ QPushButton#chip {{ background: {c['surface']}; border: 1px solid {c['border']};
                     padding: 6px 13px 6px 10px; font-weight: 600; color: {c['muted']}; }}
 QPushButton#chip:hover {{ border-color: {c['border_hi']}; color: {c['text']}; }}
 QPushButton#chip:checked {{ background: {rgba(c['primary'], 0.16)}; border-color: {c['primary']}; color: {c['text']}; }}
+
+QListWidget#profileGrid {{ background: transparent; border: none; }}
+QListWidget#profileGrid::item {{ background: {c['card']}; border: 1px solid {c['border']}; border-radius: 12px;
+                                 padding: 6px; margin: 3px; }}
+QListWidget#profileGrid::item:hover {{ border-color: {c['border_hi']}; }}
+QListWidget#profileGrid::item:selected {{ background: {rgba(c['primary'], 0.16)}; border: 1.5px solid {c['primary']};
+                                          color: {c['text']}; }}
+/* rod library */
+QFrame#rodCard {{ background: {c['card']}; border: 1px solid {c['border']}; border-radius: 14px; }}
+QFrame#rodCard:hover {{ background: {c['card_hi']}; border-color: {c['border_hi']}; }}
+QFrame#rodCard[selected="true"] {{ background: {rgba(c['primary'], 0.14)}; border: 1.5px solid {c['primary']}; }}
+QLabel#rodName {{ font-weight: 700; background: transparent; }}
+QLabel#rodSub {{ color: {c['muted']}; font-size: {pt(8.8)}; background: transparent; }}
+QLabel#tagSpecial, QLabel#tagSaved {{ font-size: {pt(7.6)}; font-weight: 700; border-radius: 7px; padding: 1px 7px; }}
+QLabel#tagSpecial {{ color: {c['accent']}; background: {rgba(c['accent'], 0.12)}; }}
+QLabel#tagSaved {{ color: {c['success']}; background: {rgba(c['success'], 0.12)}; }}
+QPushButton#star {{ background: transparent; border: none; color: {c['warning']}; font-size: {pt(12)}; padding: 0; }}
+QPushButton#star:hover {{ color: {c['text']}; }}
+QPushButton#skinCard {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 12px; }}
+QPushButton#skinCard:hover {{ border-color: {c['border_hi']}; }}
+QPushButton#skinCard:checked {{ background: {rgba(c['primary'], 0.16)}; border: 1.5px solid {c['primary']}; }}
+QLabel#skinName {{ font-size: {pt(8.5)}; color: {c['muted']}; background: transparent; }}
+QFrame#detailPanel {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 16px; }}
+QFrame#actionCard {{ background: {c['card']}; border: 1px solid {c['border']}; border-radius: 16px; }}
+QFrame#actionCard:hover {{ border-color: {c['border_hi']}; }}
+QFrame#infoCard {{ background: {c['card']}; border: 1px solid {c['border']}; border-radius: 14px; }}
+QLabel#infoLabel {{ color: {c['faint']}; font-size: {pt(8)}; font-weight: 700; letter-spacing: 1px; background: transparent; }}
+QLabel#infoValue {{ font-weight: 700; font-size: {pt(11.5)}; background: transparent; }}
+QPushButton#flat {{ background: transparent; border: none; color: {c['muted']}; padding: 4px 2px; text-align: left; }}
+QPushButton#flat:hover {{ color: {c['text']}; }}
+QSlider::groove:horizontal {{ height: 6px; background: {c['card_hi']}; border-radius: 3px; }}
+QSlider::sub-page:horizontal {{ background: {c['primary']}; border-radius: 3px; }}
+QSlider::handle:horizontal {{ background: {c['text']}; width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; }}
 """ + arrow_css

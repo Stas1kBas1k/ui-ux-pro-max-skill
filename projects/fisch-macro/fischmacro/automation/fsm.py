@@ -17,6 +17,7 @@ from enum import Enum
 
 from fischmacro.automation.minigame_solvers import MinigameSolver
 from fischmacro.automation.modules import ModuleContext, ModuleHost
+from fischmacro.automation.tracking import ReelTracker
 from fischmacro.automation.reel_controller import ReelController
 from fischmacro.input.controller import InputController
 from fischmacro.profiles.schema import Profile
@@ -112,6 +113,7 @@ class FishingStateMachine:
         self.last_obs: Observation | None = None
         self.history: list[tuple[float, State, State, str]] = []
         self.time_in_state: dict[str, float] = {}
+        self.tracker = ReelTracker()  # filtered fish / bar positions while reeling
         self.cast_bar_seen_count = 0  # casts on which the power bar was seen (enables the cast check)
         self.safe_point_hooks: list = []  # callables(now) run between catches (routines)
 
@@ -172,6 +174,7 @@ class FishingStateMachine:
             self.cycle = CycleInfo(started=now)
         if new == State.REELING:
             self.reel.reset()
+            self.tracker.reset()
             self.minigame.reset()
             self.ctx.last_reel_ui = now
             self.ctx.last_fish = now
@@ -379,26 +382,26 @@ class FishingStateMachine:
         steer = mini.kind == "none" or mini.keep_reeling
         if obs.reel.present and obs.reel.confidence >= cfg.min_confidence and not steer:
             c.last_fish = now  # rod minigame only: the bar is left alone
-        elif obs.reel.present and obs.reel.confidence >= cfg.min_confidence:
+        elif (ts := self.tracker.update(obs.reel, now, cfg.min_confidence)).usable and ts.bar_right > ts.bar_left:
+            # steer on the tracked fish and bar: a wrong detection is ignored and a missed frame or two is
+            # bridged by the prediction, instead of letting go of the bar the moment one frame is unclear
             c.last_fish = now
-            hold = self.reel.update(obs.reel.fish_x, obs.reel.bar_left, obs.reel.bar_right, now,
-                                    obs.reel.confidence, self.min_switch_interval)
+            hold = self.reel.update(ts.fish_x, ts.bar_left, ts.bar_right, now,
+                                    max(ts.confidence, cfg.min_confidence), self.min_switch_interval)
             if hold:
                 # Lullaby: a press off-beat costs -5% progress, so wait for a lit section while the fish is
                 # still inside the bar; once it is slipping out, losing the fish costs more than a miss.
-                r = obs.reel
-                slipping = r.fish_x > r.bar_right - 0.15 * max(0.01, r.bar_width)
+                slipping = ts.fish_x > ts.bar_right - 0.15 * max(0.01, ts.bar_right - ts.bar_left)
                 if self.input.is_held() or mini.kind == "none" or slipping or self.minigame.press_allowed(obs, now):
                     self.input.mouse_down()
             else:
                 self.input.mouse_up()
-        elif steer and obs.reel.ui_present and obs.reel.fish_found and \
-                obs.reel.fish_confidence >= cfg.min_confidence:
+        elif steer and obs.reel.ui_present and ts.usable:
             # Fish is clear but the bar is not (see-through or recoloured bar): steer on the fish
             # against the last bar position we saw, like a simple pixel macro would.
             c.last_fish = now
             ref = c.bar_center if (c.bar_center is not None and now - c.bar_seen < 0.6) else 0.5
-            hold = obs.reel.fish_x > ref
+            hold = ts.fish_x > ref
             if hold:
                 if self.input.is_held() or mini.kind == "none" or self.minigame.press_allowed(obs, now):
                     self.input.mouse_down()

@@ -124,7 +124,7 @@ def test_addons_page_edits_settings(app, window):
     a.sovereign.power_region.enabled = True  # picked on screen
     window.ctx.engine.addons.on_power_text("Power 77%", 1.0)
     window.ctx.engine.addons.on_power_text("Power 77%", 1.5)
-    window.select_page(2)
+    window.show_widget(window.addons)
     page.refresh()
     assert page.power_val.text() == "77%"
     stored = window.ctx.settings_store.load()
@@ -214,7 +214,7 @@ def test_diagnostics_page_shows_engine_state(app, window):
     from fischmacro.ui.pages.diagnostics import diagnostics_html
     html = diagnostics_html(window.ctx.engine)
     assert "Fishing state" in html and "Retries and recoveries" in html
-    window.select_page(window.NAV.index(("diagnostics", "Diagnostics")))
+    window.show_widget(window.diagnostics)
     window.diagnostics.refresh()
     assert "Engine" in window.diagnostics.view.toPlainText()
 

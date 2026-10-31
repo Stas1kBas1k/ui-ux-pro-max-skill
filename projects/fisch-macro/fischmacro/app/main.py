@@ -38,6 +38,13 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
+    from fischmacro.ui.logo import splash_pixmap
+    from PySide6.QtWidgets import QSplashScreen
+    splash = None
+    if not getattr(args, "self_test", False):
+        splash = QSplashScreen(splash_pixmap())
+        splash.show()
+        app.processEvents()
 
     ctx = AppContext()
 
@@ -62,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
     threading.excepthook = lambda a: excepthook(a.exc_type, a.exc_value, a.exc_traceback)
 
     win = MainWindow(ctx)
+    if splash is not None:
+        splash.finish(win)
     ctx.start_hotkeys()
     win.install_local_shortcuts()
     win.hotkeys.update_view()

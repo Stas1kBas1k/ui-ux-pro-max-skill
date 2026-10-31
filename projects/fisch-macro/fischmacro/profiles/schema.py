@@ -351,7 +351,7 @@ class LoggingConfig:
 
 @dataclass
 class AppearanceConfig:
-    theme: str = opt("Midnight Violet", "Theme", choices=["Midnight Violet", "Deep Ocean", "Abyss Emerald", "Coral Reef",
+    theme: str = opt("Nebula", "Theme", choices=["Nebula", "Midnight Violet", "Deep Ocean", "Abyss Emerald", "Coral Reef",
                                                          "Arctic Light", "High Contrast"])
     text_size: str = opt("Comfortable", "Text size", choices=["Compact", "Comfortable", "Large"])
     reduce_motion: bool = opt(False, "Reduce motion", "Disables pulsing indicators and toast animations.")
@@ -541,6 +541,14 @@ class MiniModeConfig:
 
 
 @dataclass
+class LibraryConfig:
+    """Rod Library state (per user, not per profile)."""
+    favourites: list[str] = field(default_factory=list)
+    recent: list[str] = field(default_factory=list)       # most recent first
+    skins: dict[str, list[str]] = field(default_factory=dict)  # rod -> skins the user added
+
+
+@dataclass
 class AppSettings:
     active_profile: str = "Default"
     risk_acknowledged: bool = False
@@ -561,6 +569,7 @@ class AppSettings:
     rod_detect: RodDetectConfig = field(default_factory=RodDetectConfig)
     ai: AiConfig = field(default_factory=AiConfig)
     mini: MiniModeConfig = field(default_factory=MiniModeConfig)
+    library: LibraryConfig = field(default_factory=LibraryConfig)
     window_geometry: str = ""
     setup_dismissed: bool = False
     setup_progress: dict[str, bool] = field(default_factory=dict)  # milestones seen in the live game

@@ -53,8 +53,8 @@ RISK_TEXT = (
 
 
 def app_icon() -> QIcon:
-    art = asset_pixmap("app_icon.png")
-    return QIcon(art) if art is not None else icon("fish", C["primary_hi"], 64)
+    from fischmacro.ui.logo import logo_icon
+    return logo_icon()
 
 
 class RiskDialog(QDialog):
@@ -81,10 +81,8 @@ class RiskDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
-    NAV = [("dashboard", "Dashboard"), ("fishing", "Fishing"), ("addons", "Add-ons"), ("hunts", "Hunts"),
-           ("assistant", "Assistant"), ("calibration", "Calibration"), ("profiles", "Profiles"),
-           ("settings", "Settings"), ("logs", "Logs & Stats"), ("diagnostics", "Diagnostics")]
-    CALIBRATION = 5
+    NAV = [("dashboard", "Dashboard"), ("library", "Rod Library"), ("automation", "Automation"),
+           ("profiles", "Profiles"), ("settings", "Settings")]
 
     def __init__(self, ctx):
         super().__init__()
@@ -121,16 +119,30 @@ class MainWindow(QMainWindow):
         self.profiles = ProfilesPage(ctx)
         self.hotkeys = HotkeysPage(ctx)
         self.settings = SettingsPage(ctx)
-        self.settings_hub = QTabWidget()
-        self.settings_hub.setObjectName("settingsHub")
-        self.settings_hub.addTab(self.settings, "General")
-        self.settings_hub.addTab(self.hotkeys, "Hotkeys")
         self.logs = LogsPage(ctx)
+        from fischmacro.ui.pages.about import AboutPage
         from fischmacro.ui.pages.diagnostics import DiagnosticsPage
+        from fischmacro.ui.pages.rod_library import RodLibraryPage
+        from fischmacro.ui.pages.setup import SetupPage
         self.diagnostics = DiagnosticsPage(ctx)
-        for page in (self.dashboard, self.fishing, self.addons, self.hunts, self.assistant, self.vision,
-                     self.profiles, self.settings_hub, self.logs, self.diagnostics):
+        self.library = RodLibraryPage(ctx)
+        self.setup_page = SetupPage(ctx)
+        # five sections; the rest are tabs inside Automation and Settings
+        self.automation_hub = self._hub([(self.fishing, "Fishing"), (self.setup_page, "Setup && tests"),
+                                         (self.addons, "Add-ons"), (self.hunts, "Hunts"),
+                                         (self.assistant, "Assistant")])
+        self.settings_hub = self._hub([(self.settings, "General"), (self.hotkeys, "Hotkeys"),
+                                       (self.vision, "Vision && calibration"), (self.diagnostics, "Diagnostics"),
+                                       (self.logs, "Logs && stats"), (AboutPage(), "About")])
+        for page in (self.dashboard, self.library, self.automation_hub, self.profiles, self.settings_hub):
             self.stack.addWidget(page)
+        self.library.start_requested.connect(self.start_automation)
+        self.library.calibrate_requested.connect(lambda: self.show_widget(self.setup_page))
+        self.setup_page.library_requested.connect(lambda: self.select_page(1))
+        self.setup_page.wizard_requested.connect(self.open_setup_wizard)
+        self.setup_page.regions_requested.connect(self.toggle_calibration)
+        self.setup_page.overlay_requested.connect(lambda: self.vision.overlay_chk.setChecked(
+            not self.vision.overlay_chk.isChecked()))
 
         self.dashboard.start_requested.connect(self.start_automation)
         self.dashboard.pause_requested.connect(self.ctx.engine.toggle_pause)
@@ -138,9 +150,10 @@ class MainWindow(QMainWindow):
         self.dashboard.risk_requested.connect(self._review_risk)
         self.dashboard.preview_requested.connect(self._start_preview)
         self.dashboard.calibrate_requested.connect(self.toggle_calibration)
-        self.dashboard.vision_requested.connect(lambda: self.select_page(self.CALIBRATION))
+        self.dashboard.vision_requested.connect(lambda: self.show_widget(self.vision))
         self.dashboard.autocal_requested.connect(self._start_autocal)
-        self.dashboard.fishing_requested.connect(lambda: self.select_page(1))
+        self.dashboard.fishing_requested.connect(lambda: self.show_widget(self.fishing))
+        self.dashboard.library_requested.connect(lambda: self.select_page(1))
         self.dashboard.wizard_requested.connect(self.open_setup_wizard)
         self.vision.calibrate_requested.connect(self.toggle_calibration)
         self.vision.snapshot_requested.connect(self.diagnostic_snapshot)
@@ -175,14 +188,11 @@ class MainWindow(QMainWindow):
         v.setSpacing(4)
         brand = QHBoxLayout()
         logo = QLabel()
-        art = asset_pixmap("logo.png")
-        if art is not None:
-            dpr = self.devicePixelRatioF()
-            pm = art.scaled(int(46 * dpr), int(46 * dpr), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            pm.setDevicePixelRatio(dpr)
-            logo.setPixmap(pm)
-        else:
-            logo.setPixmap(icon("fish", C["primary_hi"], 30).pixmap(30, 30))
+        from fischmacro.ui.logo import logo_pixmap
+        dpr = self.devicePixelRatioF()
+        pm = logo_pixmap(int(42 * dpr)).copy()
+        pm.setDevicePixelRatio(dpr)
+        logo.setPixmap(pm)
         brand.addWidget(logo)
         col = QVBoxLayout()
         col.setSpacing(0)
@@ -303,13 +313,41 @@ class MainWindow(QMainWindow):
             sb.addWidget(w)
         sb.addPermanentWidget(self.sb_keys)
 
+    def _hub(self, pages) -> QTabWidget:
+        hub = QTabWidget()
+        hub.setObjectName("settingsHub")
+        hub.setDocumentMode(True)
+        for w, title in pages:
+            hub.addTab(w, title)
+        hub.currentChanged.connect(lambda _: self._page_changed())
+        return hub
+
+    def current_page(self) -> QWidget:
+        w = self.stack.currentWidget()
+        return w.currentWidget() if isinstance(w, QTabWidget) else w
+
+    def show_widget(self, widget: QWidget) -> None:
+        """Go to a page, wherever it lives (a section or a tab inside one)."""
+        for i in range(self.stack.count()):
+            w = self.stack.widget(i)
+            if w is widget:
+                self.select_page(i)
+                return
+            if isinstance(w, QTabWidget) and w.indexOf(widget) >= 0:
+                w.setCurrentWidget(widget)
+                self.select_page(i)
+                return
+
     def select_page(self, i: int) -> None:
         self.stack.setCurrentIndex(i)
         for j, (key, _) in enumerate(self.NAV):
             b = self.nav_group.button(j)
             b.setChecked(j == i)
             b.setIcon(icon(key, C["primary_hi"] if j == i else C["muted"]))
-        self.ctx.engine.set_preview(self.stack.currentWidget() is self.vision)
+        self._page_changed()
+
+    def _page_changed(self) -> None:
+        self.ctx.engine.set_preview(self.current_page() is self.vision)
 
     def _restore_geometry(self) -> None:
         g = self.ctx.settings.window_geometry
@@ -393,11 +431,11 @@ class MainWindow(QMainWindow):
         self.ensure_acknowledged()
 
     def _start_autocal(self) -> None:
-        self.select_page(self.CALIBRATION)
+        self.show_widget(self.setup_page)
         self.ctx.engine.start_autocalibration()
 
     def _start_preview(self) -> None:
-        self.select_page(self.CALIBRATION)
+        self.show_widget(self.vision)
         if self.ctx.engine.status == Status.STOPPED:
             self.ctx.engine.start_vision()
 
@@ -541,8 +579,8 @@ class MainWindow(QMainWindow):
             self.mini.refresh(s)
             if s.status not in (Status.RUNNING, Status.PAUSED):
                 self.show_full()  # fishing stopped: bring the full window back
-        self.vision.refresh(s, self.stack.currentWidget() is self.vision)
-        if self.stack.currentWidget() is self.logs:
+        self.vision.refresh(s, self.current_page() is self.vision)
+        if self.current_page() is self.logs:
             self.logs.poll_log()
         if self.overlay.isVisible():
             game_rect = (*s.preview.screen_origin, *s.preview.client_size) if s.preview is not None else None

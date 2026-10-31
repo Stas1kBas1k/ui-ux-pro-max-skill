@@ -226,3 +226,74 @@ def test_presets_pick_the_right_solver(rod, kind):
     p = Profile()
     apply_preset(p, find_preset(rod))
     assert p.minigame.kind == kind
+
+
+# ---------------------------------------------------------------- key prompts read from the screen
+def test_key_prompt_parsing_and_allow_list():
+    from fischmacro.rods.prompts import parse_key_prompts
+    from fischmacro.vision.ocr import TextBox
+    boxes = [TextBox("復の反擎！", 0.55, 0.3, 0.3, 0.1, 0.05), TextBox("Lunch'sSeat", 0.8, 0.6, 0.6, 0.1, 0.05),
+             TextBox("SHIFT", 0.83, 0.52, 0.62, 0.08, 0.05), TextBox("Q", 0.9, 0.1, 0.1, 0.02, 0.05)]
+    found = parse_key_prompts(boxes, allowed={"shift", "space"})
+    assert [p.key for p in found] == ["shift"]                      # Q is not on the allow-list
+    assert [p.key for p in parse_key_prompts([TextBox("⇧SHIFT", 0.8, 0, 0, 0, 0)])] == ["shift"]
+    assert parse_key_prompts([TextBox("Shift happens today", 0.9, 0, 0, 0, 0)]) == []
+
+
+def test_real_migu_prompt_is_read_as_shift():
+    import time
+
+    import cv2
+    from pathlib import Path
+
+    from fischmacro.rods.prompts import PromptReader
+    from fischmacro.vision.ocr import OcrEngine
+    if not OcrEngine.shared().available:
+        pytest.skip("OCR engine not installed")
+    img = cv2.imread(str(Path(__file__).parent / "fixtures" / "real" / "migu_counter.webp"))
+    r = PromptReader(allowed={"shift", "space"})
+    r.request(img)
+    end = time.monotonic() + 20
+    while r.result is None and time.monotonic() < end:
+        time.sleep(0.05)
+    assert r.result is not None and r.result.key == "shift"
+
+
+def test_migu_presses_the_key_read_on_screen_and_retries_once_if_not_taken():
+    from fischmacro.automation.minigame_solvers import MinigameSolver
+    from fischmacro.input.controller import InputController, RecordingBackend
+    from fischmacro.rods.prompts import KeyPrompt
+    from fischmacro.vision.engine import Observation
+
+    class Fsm:
+        input = InputController(RecordingBackend(), key_hold_ms=0)
+        last_obs = None
+
+    s = MinigameSolver(Profile().minigame, Fsm())
+    s.cfg.kind = "migu"
+    s.latency = 0.0
+    s.prompts.request = lambda img: None
+    s.prompts.reset = lambda: None
+    s.prompts.result = KeyPrompt("space", 0.5, 0.6, 0.9, "SPACE")    # the screen asked for Space
+    t = 0.0
+
+    def frame(x):
+        nonlocal t
+        o = Observation()
+        o.timing.present, o.timing.pointer, o.timing.segments = True, x, [(0.47, 0.53)]
+        s.update(o, t)
+        t += 0.02
+
+    for x in (0.30, 0.38, 0.45, 0.50, 0.55):
+        frame(x)
+    keys = [e[1] for e in Fsm.input.backend.events if e[0] == "key_down"]
+    assert keys == ["space"]
+    for _ in range(60):  # the bar stays a second after the press: the press was not taken
+        frame(0.6)
+    for x in (0.45, 0.50):
+        frame(x)
+    keys = [e[1] for e in Fsm.input.backend.events if e[0] == "key_down"]
+    assert keys == ["space", "space"]
+    for _ in range(80):
+        frame(0.5)  # never more than one retry
+    assert len([e for e in Fsm.input.backend.events if e[0] == "key_down"]) == 2

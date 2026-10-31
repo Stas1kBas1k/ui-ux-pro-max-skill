@@ -5,7 +5,7 @@ import time
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QHBoxLayout, QListWidget, QListWidgetItem, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QFrame, QGridLayout, QHBoxLayout, QListWidget, QListWidgetItem, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from fischmacro.automation.engine import EngineSnapshot, Status
@@ -41,6 +41,7 @@ class DashboardPage(QWidget):
     autocal_requested = Signal()
     fishing_requested = Signal()
     wizard_requested = Signal()
+    library_requested = Signal()
 
     def __init__(self, ctx):
         super().__init__()
@@ -106,6 +107,36 @@ class DashboardPage(QWidget):
         self.pause_btn.clicked.connect(self.pause_requested)
         self.stop_btn.clicked.connect(self.stop_requested)
         root.addWidget(self.hero)
+
+        # --- status at a glance
+        cards = QGridLayout()
+        cards.setSpacing(12)
+        self.info = {}
+        for i, (key, title) in enumerate((("game", "GAME"), ("rod", "ROD & SKIN"), ("profile", "PROFILE"),
+                                           ("state", "AUTOMATION"), ("tracking", "FISH TRACKING"),
+                                           ("calibration", "CALIBRATION"))):
+            card = QFrame()
+            card.setObjectName("infoCard")
+            cv = QVBoxLayout(card)
+            cv.setContentsMargins(14, 12, 14, 12)
+            cv.setSpacing(4)
+            top = QHBoxLayout()
+            top.addWidget(label(title, "infoLabel"), 1)
+            if key == "rod":
+                change = QPushButton("Change")
+                change.setObjectName("flat")
+                change.setCursor(Qt.PointingHandCursor)
+                change.clicked.connect(self.library_requested)
+                top.addWidget(change)
+            cv.addLayout(top)
+            val = label("---", "infoValue")
+            val.setWordWrap(True)
+            sub = label("", "rowHint", wrap=True)
+            cv.addWidget(val)
+            cv.addWidget(sub)
+            cards.addWidget(card, i // 3, i % 3)
+            self.info[key] = (val, sub)
+        root.addLayout(cards)
 
         from fischmacro.ui.setup_checklist import SetupChecklist
         self.checklist = SetupChecklist(ctx, {
@@ -223,3 +254,51 @@ class DashboardPage(QWidget):
         else:
             self.v_track.setText("---")
         self.v_input.setText(", ".join(s.held_inputs) if s.held_inputs else "nothing")
+        self._refresh_cards(s)
+
+    def _set(self, key: str, value: str, sub: str = "", color: str | None = None) -> None:
+        v, h = self.info[key]
+        v.setText(value)
+        v.setStyleSheet(f"color: {color};" if color else "")
+        h.setText(sub)
+
+    def _refresh_cards(self, s: EngineSnapshot) -> None:
+        st, p, eng = s.status, self.ctx.profile, self.ctx.engine
+        if s.simulated:
+            self._set("game", "Test game", "Simulation mode - no real input", C["accent"])
+        elif st == Status.STOPPED:
+            self._set("game", "Not checked", "Press Start or watch the game to look for Roblox")
+        elif s.window_found:
+            self._set("game", "Roblox found", "focused" if s.window_focused else "click into Roblox to fish",
+                      C["success"] if s.window_focused else C["warning"])
+        else:
+            self._set("game", "Roblox not found", "Open Roblox and join Fisch", C["danger_hi"])
+        auto = self.ctx.settings.rod_detect.enabled
+        rod = p.equipment.rod_name or ("Automatic" if auto else "Not chosen")
+        from fischmacro.rods import behaviour_for
+        b = behaviour_for(p.minigame.kind)
+        self._set("rod", rod + (f" · {p.equipment.skin}" if p.equipment.skin else ""),
+                  b.label + (" minigame" if p.minigame.kind != "none" else " reel"))
+        self._set("profile", p.name, "saved automatically")
+        self._set("state", STEP_NAMES.get(s.fsm_state, s.fsm_state.title()) if st in (Status.RUNNING, Status.PAUSED)
+                  else st.value, s.message or ("Ready - press Start" if st != Status.RUNNING else ""),
+                  STATUS_COLORS.get(st.value))
+        tr = eng.fsm.tracker.state
+        obs = s.observation
+        if st == Status.RUNNING and s.fsm_state == "REELING" and tr.usable:
+            self._set("tracking", f"{tr.confidence:.0%} sure", f"fish moving {tr.direction}"
+                      + (" · bridging a missed frame" if tr.coasting else ""), C["success"] if tr.confidence > 0.6 else
+                      C["warning"])
+        elif obs is not None and st != Status.STOPPED and obs.reel.ui_present:
+            self._set("tracking", "Reel seen", "fish " + ("found" if obs.reel.fish_found else "not found"))
+        else:
+            self._set("tracking", "Waiting", "Starts when the reel appears")
+        cal = eng.autocal_status
+        if eng.autocalibrating:
+            self._set("calibration", "Running", cal, C["accent"])
+        elif cal.startswith("Calibrated"):
+            self._set("calibration", "Done", cal[:90], C["success"])
+        elif "failed" in cal.lower():
+            self._set("calibration", "Failed", cal[:120], C["warning"])
+        else:
+            self._set("calibration", "Built-in", "Works without calibration on most setups")
