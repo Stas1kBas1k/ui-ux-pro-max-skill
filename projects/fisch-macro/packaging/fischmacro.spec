@@ -10,11 +10,12 @@ ocr_data = collect_data_files("rapidocr_onnxruntime")  # OCR models + config
 a = Analysis(
     [str(ROOT / "run.py")],
     pathex=[str(ROOT)],
-    datas=[(str(ROOT / "assets"), "assets")] + ocr_data,
+    datas=[(str(ROOT / "assets"), "assets"),
+           (str(ROOT / "fischmacro" / "web"), "fischmacro/web")] + ocr_data,  # the new interface (HTML/CSS/JS)
     hiddenimports=["pynput.keyboard._win32", "pynput.mouse._win32", "pynput.keyboard._xorg", "pynput.mouse._xorg",
-                   "onnxruntime", "anthropic"] + collect_submodules("rapidocr_onnxruntime"),  # imported dynamically
-    excludes=["tkinter", "matplotlib", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
-              "PySide6.Qt3DCore", "PySide6.QtQuick3D", "PySide6.QtMultimedia", "PySide6.QtPdf"],
+                   "onnxruntime", "anthropic", "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineCore",
+                   "PySide6.QtWebChannel"] + collect_submodules("rapidocr_onnxruntime"),  # imported dynamically
+    excludes=["tkinter", "matplotlib", "PySide6.Qt3DCore", "PySide6.QtQuick3D", "PySide6.QtMultimedia", "PySide6.QtPdf"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

@@ -5,7 +5,16 @@ vision. It watches the game, recognises what is on screen (cast power bar, shake
 catch results, disconnect dialogs) and sends normal mouse/keyboard input through a finite-state machine and a
 feedback controller.
 
-![Dashboard while fishing (simulation mode)](docs/screenshots/dashboard.png)
+![Dashboard while fishing (test game)](docs/screenshots/ui-running.png)
+
+| **Rod Library** (pick a rod and skin; each keeps its own configuration) | **Automation** (five steps, ticked when done) |
+|---|---|
+| ![Rod Library](docs/screenshots/ui-library.png) | ![Automation](docs/screenshots/ui-automation.png) |
+| **Profiles** (configuration editor, Save / Revert / Recommended) | **Diagnostics** (live view with detections and inputs) |
+| ![Profiles](docs/screenshots/ui-profiles.png) | ![Diagnostics](docs/screenshots/ui-diagnostics.png) |
+
+The tool pages below open in their own window, from *Settings → Advanced tools*. The previous interface is
+still available under *Settings → General → Interface → Classic*.
 
 | **Fishing** (live status, every rod or Automatic, Lullaby mode) | **Add-ons** (Sovereign, Totem, Appraise, Potion, Astral) |
 |---|---|
@@ -417,20 +426,23 @@ Verified in this repository (automated tests, run on Linux and in the Windows CI
 - Watchers: OCR hunt detection with cooldowns, rod-name changes, fuzzy matching of OCR typos, Discord payloads
   (against a local test server), automatic rod and skin profiles.
 - The UI builds offscreen in every theme and text size, calibration saves, and buttons drive the engine.
+- The new interface: every call the page makes exists in the bridge and drives the engine. The page loads in
+  the real QtWebEngine and runs every section, plus Start and Stop, without script errors.
 - The PyInstaller build starts and runs in simulation mode, and `--self-test` confirms OCR works inside the
   bundle (Linux build verified locally; the Windows `.exe` is built and self-tested by the CI workflow).
 
 **Needs live testing in Roblox Fisch** (it can't be tested without the real game):
 - Region positions are relative estimates (the reel area is found within them by shape); unusual layouts may
   still need Auto-calibrate.
-- How the Lullaby UI shows a hit (the delay is learned from the lit sections changing after a hit).
 - Reel-controller gains for specific rods. The simulator models the bar physics, not Fisch's exact values.
 - The appearance of shake buttons and their colour. Template mode is the most robust option.
 - Perfect-cast detection, disconnect detection and auto reconnect (marked *experimental* in the UI).
 - Behaviour after Fisch UI updates. Auto-adapt handles colour changes; re-run Auto-calibrate after layout changes.
-- Rod minigames: the Lullaby lead time; how a Stellarwave sign is picked (the reel itself is tracked on real
-  screenshots, sign picking is off); MiguRod timing in game (the bar is read from a real screenshot; slash
-  dodging is not automated). Halibut Harpoon is never clicked (checked on a real screenshot).
+- **Rod minigames** (detection is checked on the player's recording; see `docs/REPAIR_REPORT.md` §12):
+  - Lullaby: the lead time on your PC.
+  - Stellarwave: the tap timing on your PC.
+  - MiguRod: the Shift press in game.
+  - Halibut Harpoon: never clicked (checked on a real screenshot).
 - Add-ons: the Sovereign gamepass recharge flow, the appraise button names, the inventory key, and where
   the power and world readouts appear on screen. They are marked *verify in game*.
 

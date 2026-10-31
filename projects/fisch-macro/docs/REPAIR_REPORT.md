@@ -226,9 +226,95 @@ Screen capture on Windows costs more than the simulator's capture; measure it wi
   default theme is "Nebula".
 
 ### Needs a live Fisch session
-1. MiguRod: the counterattack bar's position above the reel, and the timing of the press (Diagnostics →
-   "Rod minigame log" shows each press).
-2. Stellarwave: how a sign is picked (needed before sign picking can be switched on).
-3. Tracking on your PC: start with *Observe only* on, play a reel by hand, and check "Fish tracking" in
-   Diagnostics.
-4. Skins: there is no built-in skin catalogue. Add a skin from its rod's card, then calibrate it once.
+The current list is at the end of section 12.
+
+## 12. Rebuild from the player's recording, per-rod configuration, new interface
+
+### Stage 1: audit (confirmed causes)
+- **Shake clicked the wrong thing:** the colour method fired on the Roblox player list in 297 of 634
+  recorded frames.
+- **Fish lost on special rods:** the colour fish finder missed the fish on Stellarwave (0/7 frames) and
+  locked onto red slash effects.
+- **Stellarwave bar not found:** the standard bar detector does not see the bright capsule bar on the
+  sign strip.
+- **Lullaby clicked off the lit part:** it learned an input delay from lit sections changing, but on the
+  real gauge a hit does not change them.
+- **Full frames skipped the current state's detectors:** this reset the Lullaby history.
+
+### Stage 2: fixes, measured on the recording (`tests/test_recording.py`, 21 tests)
+| Check | Before | After |
+|---|---|---|
+| False shake clicks | 297 / 634 frames | 0 (real button still confirmed in 0.1 s) |
+| Fish found (labelled frames) | 5/8 standard, 0/7 Stellarwave | 15/15 |
+| Bar found (steered rods) | Stellarwave missed | 10/10 within 25 px |
+| Stellarwave next sign | not implemented | correct sign at the correct position; low-confidence frames are not clicked |
+| Lullaby clicks inside the lit part (replay) | not checked | 9/9 |
+
+- **Shake:** a candidate is clicked only when it looks like one word and OCR reads it as SHAKE. The OCR
+  runs in the background, and the result is remembered per position. The colour method is opt-in.
+- **Fish:** an edge-based finder looks for a thin line that continues past the track, and rejects red
+  slash effects.
+- **Stellarwave:** a "capsule" reel profile follows the bright bar. The picker reads the 12-sign row,
+  counts lit stars, and finds the next sign on the moving strip by shape. The top-row sign is the
+  template, so it follows skins. It keeps the cursor on that sign, taps, and checks that the star lights.
+- **Lullaby:** the half-moon gauge is read in polar coordinates (lit parts and pendulum angle). A click is
+  sent only when the pendulum is inside a lit part now *and* when the click lands. The fish is not
+  steered.
+- **MiguRod:** the "!" marks on the track are found, and the bar aims away from them while keeping the
+  fish.
+- **Replay tool:** `python -m fischmacro.diagnostics.replay FRAMES --rod stellarwave --out DIR` runs a
+  recording through the real engine and draws what it saw and sent.
+
+### Stage 3: per-rod configuration and licensing groundwork
+- **Per-rod definition** (`fischmacro/rods/config.py`): behaviour, reel layout, note, and how it was
+  verified.
+- **Editor schema:** one per rod. The simple fields come first; everything technical is under Advanced.
+  Sensitivity is one slider that sets all three controller gains.
+- **Profiles:** each rod, and each skin you add, is saved as its own profile. Edits are a draft until
+  Save, with Revert and Recommended.
+- **Licensing** (`fischmacro/licensing`): a provider interface checked once at Start. Development builds
+  use an always-allowed provider. A server provider stub describes the one-device activation API
+  (`/v1/activate`, `/v1/validate`, `/v1/deactivate`; signed token). The device id is a salted hash, so
+  the raw machine id never leaves the PC. There is no fake protection: nothing is enforced until a
+  server exists.
+
+### Stage 4: new interface
+The main window is now an HTML/CSS interface running inside the app (QtWebEngine, local files only),
+connected to the same engine through one bridge (`fischmacro/ui/web_api.py`).
+- **Dashboard:** one large Start/Stop button and status tiles (game, rod and skin, configuration,
+  calibration, fish tracking, automation), plus session stats.
+- **Rod Library:** searchable rod cards with filters. A side drawer shows the rod's skins, its
+  configuration, and *Save and use* / *Use & start*.
+- **Automation:** five steps (rod, skin, configuration, calibrate, start). Each step is ticked when it is
+  done. Below them: Watch the game, Test this rod, Live view and the extras.
+- **Profiles:** a list plus the editor (Save / Revert / Recommended, duplicate, rename, export, delete,
+  import).
+- **Settings tabs:**
+  - General
+  - Hotkeys (click, then press a key)
+  - Diagnostics (live view with detections and the last inputs)
+  - Advanced tools (the classic pages, in their own window)
+  - Licence
+  - About
+- **Design:** near-black background, one violet accent, Inter font (bundled, OFL), and Lucide icons.
+- **Classic interface:** still available under *Settings → General → Interface → Classic*, and used
+  automatically if QtWebEngine is missing.
+
+### Stage 5/6: every control connected
+`tests/test_web_ui.py`:
+- **Every call exists:** every `api("...")` call in the page must exist in the bridge.
+- **Engine checks:** rod, skin and profile flows, settings, hotkeys, the licence screen, desktop actions,
+  Start / Pause / Stop, and the live view are all checked against the engine.
+- **Real page test:** the page is loaded in the real QtWebEngine. The test visits every section, opens a
+  rod, and starts and stops fishing from the page, with no script errors.
+- **Windows build:** the CI smoke test now also requires the "New interface loaded" log line from the
+  built exe.
+
+### Needs a live Fisch session (current list)
+1. **Stellarwave:** the tap timing on your PC (signs are found correctly on the recording).
+2. **Lullaby:** the lead time on your PC (*Lead* under Advanced; the default suits a small input delay).
+3. **MiguRod:** the Shift counterattack press is implemented from a screenshot but was not seen in the
+   recording. Slash avoidance is checked on the recording.
+4. **Skins:** there are too many to list. Normal rods are the focus; a skin you add starts from its rod's
+   settings.
+5. **Tracking:** check it on your PC with *Observe only*, using Settings → Diagnostics.

@@ -22,8 +22,7 @@ from fischmacro.ui.theme import C
 from fischmacro.ui.widgets import ConfigForm, label, page_header
 
 CATEGORIES = ["All", "Special minigame", "Favourites", "Recent", "Configured"]
-STATUS_TEXT = {"real screenshot": "Checked on real screenshots", "simulated": "Tested in the simulator",
-               "unconfirmed": "Mechanic not confirmed yet"}
+from fischmacro.rods import STATUS_TEXT  # noqa: E402
 
 
 def sensitivity(reel) -> int:

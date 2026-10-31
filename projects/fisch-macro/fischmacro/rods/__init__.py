@@ -27,22 +27,26 @@ class RodBehaviour:
     notes: list[str] = field(default_factory=list)
 
 
+STATUS_TEXT = {"real recording": "Checked on a real game recording", "real screenshot": "Checked on real screenshots",
+               "simulated": "Tested in the simulator only", "unconfirmed": "Mechanic not confirmed yet"}
+
 ROD_BEHAVIOURS: dict[str, RodBehaviour] = {b.kind: b for b in (
     RodBehaviour("none", "Standard", "Reels: keeps the fish inside the bar.",
                  status="real screenshot"),
-    RodBehaviour("lullaby", "Lullaby", "Clicks the metronome only over lit sections; switches the mode once per Start.",
+    RodBehaviour("lullaby", "Lullaby", "Clicks only while the pendulum is over the lit part of the gauge (a click on "
+                 "the red part is a miss). It does not steer the fish.",
                  lullaby.update, settings=("lullaby_mode", "keep_reeling"),
                  advanced=("lead_ms", "min_interval", "mode_key", "pointer_tolerance", "lit_tolerance"),
-                 events=("lit section under the pendulum",), status="simulated",
-                 notes=["Input delay is learned from hits."]),
-    RodBehaviour("stellarwave", "Stellarwave sign picker", "Clicks the asked zodiac sign and checks the click "
-                 "(experimental: how a sign is picked is not confirmed).",
+                 events=("lit section under the pendulum",), status="real recording",
+                 notes=["The click is aimed a little ahead of the pendulum (Lead, in Advanced)."]),
+    RodBehaviour("stellarwave", "Stellarwave sign picker", "Taps the zodiac signs in order (Aries to Pisces) on the "
+                 "moving strip and checks that each sign's star lights up.",
                  stellarwave.update, settings=("keep_reeling",), advanced=("match_threshold", "symbol_tolerance"),
-                 events=("zodiac sign asked",), status="unconfirmed"),
+                 events=("zodiac sign asked",), status="real recording"),
     RodBehaviour("migu", "MiguRod", "Presses the key shown on the counterattack bar (Shift) when the line is "
                  "on the diamond.", migu.update, settings=("migu_key", "keep_reeling"),
                  advanced=("migu_window", "lead_ms"), events=("counterattack bar", "key prompt"),
-                 status="real screenshot", notes=["Slash dodging is not automated (mechanic not documented)."]),
+                 status="real screenshot", notes=["Keeps the bar away from slash marks while reeling."]),
     RodBehaviour("halibut", "Halibut Harpoon", "Nothing to press; ignores the '!' icon so the bar is not pulled away.",
                  filter_obs=halibut.filter_obs, settings=("keep_reeling",), advanced=("halibut_gun_key",),
                  events=("'!' harpoon mark",), status="real screenshot"),

@@ -223,6 +223,11 @@ class AutomationEngine:
         if self.routine_running:
             self._stage("no routine running", False, f"'{self.routine_running}' is still running")
             return False
+        from fischmacro import licensing  # the one licence check in the app (see licensing/__init__.py)
+        lic = licensing.current()
+        if not lic.allows("automation"):
+            self._stage("licence", False, lic.message)
+            return False
         problems = self.profile.validate()
         if problems:
             self._stage("profile valid", False, "; ".join(problems))

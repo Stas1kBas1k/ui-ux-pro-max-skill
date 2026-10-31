@@ -35,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(settings.logging.level, settings.logging.max_log_files)
     log = logging.getLogger("fischmacro")
 
+    from PySide6.QtCore import QCoreApplication, Qt
+    QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)  # required by the new interface (QtWebEngine)
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")

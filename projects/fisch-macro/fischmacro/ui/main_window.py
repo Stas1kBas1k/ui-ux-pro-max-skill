@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from PySide6.QtCore import QByteArray, QEvent, QSize, Qt, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
-    QPushButton, QStackedWidget, QTabWidget, QVBoxLayout, QWidget,
+    QFileDialog, QPushButton, QStackedWidget, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from fischmacro import APP_NAME, __version__
@@ -52,6 +53,19 @@ RISK_TEXT = (
 )
 
 
+def want_web_interface(ctx) -> bool:
+    """The new interface unless Classic is chosen (Settings or FISCHMACRO_UI=classic) or QtWebEngine is missing."""
+    choice = os.environ.get("FISCHMACRO_UI", "").lower() or ctx.settings.appearance.interface.lower()
+    if choice == "classic":
+        return False
+    try:
+        from fischmacro.ui import web_view
+    except ImportError as exc:  # the build has no QtWebEngine: the classic interface still works
+        log.warning("New interface unavailable (%s); using the classic one", exc)
+        return False
+    return web_view.available()
+
+
 def app_icon() -> QIcon:
     from fischmacro.ui.logo import logo_icon
     return logo_icon()
@@ -84,9 +98,11 @@ class MainWindow(QMainWindow):
     NAV = [("dashboard", "Dashboard"), ("library", "Rod Library"), ("automation", "Automation"),
            ("profiles", "Profiles"), ("settings", "Settings")]
 
-    def __init__(self, ctx):
+    def __init__(self, ctx, web: bool | None = None):
         super().__init__()
         self.ctx = ctx
+        self.web = None            # the HTML interface (WebInterface) when it is in use
+        self.tools_window = None   # in the new interface, the classic tool pages open in this window
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(1100, 720)
         self.resize(1320, 860)
@@ -104,7 +120,8 @@ class MainWindow(QMainWindow):
         h = QHBoxLayout(root)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
-        h.addWidget(self._build_sidebar())
+        self.sidebar = self._build_sidebar()
+        h.addWidget(self.sidebar)
         self.stack = QStackedWidget()
         self.stack.setObjectName("root")
         h.addWidget(self.stack, 1)
@@ -167,8 +184,13 @@ class MainWindow(QMainWindow):
         self.tray.set_visible(ctx.settings.notifications.tray_icon)
         ctx.settings_changed.connect(self._on_settings_changed)
         ctx.notice.connect(self._on_notice)
-        for i in range(min(9, len(self.NAV))):
-            QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, activated=lambda i=i: self.select_page(i))
+        if web is None:
+            web = want_web_interface(ctx)
+        if web:
+            self._use_web_interface(root)
+        else:
+            for i in range(min(9, len(self.NAV))):
+                QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, activated=lambda i=i: self.select_page(i))
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.poll)
         self.timer.start(66)
@@ -257,7 +279,65 @@ class MainWindow(QMainWindow):
 
     def toast(self, title: str, message: str, color: str | None = None) -> None:
         if self.ctx.settings.notifications.toasts:
-            self.toasts.show(title, message, color)
+            if self.web is not None:
+                self.web.notify(title, message)
+            else:
+                self.toasts.show(title, message, color)
+
+    # ------------------------------------------------------------------ the new (HTML) interface
+    def _use_web_interface(self, classic_root: QWidget) -> None:
+        from fischmacro.ui.web_api import WebApi
+        from fischmacro.ui.web_view import WebInterface
+        self.web = WebInterface(WebApi(self.ctx, self), self)
+        self.setCentralWidget(self.web)  # the classic root is kept for the tool pages, in its own window
+        self.tools_window = QWidget(None, Qt.Window)
+        self.tools_window.setWindowTitle(f"{APP_NAME} - tools")
+        self.tools_window.setWindowIcon(app_icon())
+        self.tools_window.resize(1180, 800)
+        lay = QVBoxLayout(self.tools_window)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(classic_root)
+        self.sidebar.hide()
+        self.statusBar().hide()
+
+    PANELS = {"addons": "addons", "hunts": "hunts", "assistant": "assistant", "vision": "vision", "logs": "logs",
+              "fishing": "fishing", "setup": "setup_page", "profiles": "profiles"}
+
+    def native_action(self, what: str, arg=None):
+        """Things the HTML interface asks the desktop for: dialogs, the region picker and the tool windows."""
+        from fischmacro import paths
+        if what == "regions":
+            self.toggle_calibration()
+        elif what == "wizard":
+            self.open_setup_wizard()
+        elif what == "panel":
+            attr = self.PANELS.get(str(arg))
+            if attr is None:
+                raise ValueError(f"unknown panel {arg}")
+            self.open_panel(getattr(self, attr))
+        elif what == "save_file":
+            folder = paths.data_dir() / "exports"
+            folder.mkdir(parents=True, exist_ok=True)
+            path, _ = QFileDialog.getSaveFileName(self, "Export profile", str(folder / str(arg or "profile.json")),
+                                                  "Profiles (*.json)")
+            return path or None
+        elif what == "open_file":
+            path, _ = QFileDialog.getOpenFileName(self, "Import profile", str(paths.data_dir()), "Profiles (*.json)")
+            return path or None
+        else:
+            raise ValueError(f"unknown action {what}")
+        return None
+
+    def open_panel(self, widget: QWidget) -> None:
+        self.show_widget(widget)
+        if self.tools_window is not None:
+            self.tools_window.show()
+            self.tools_window.raise_()
+            self.tools_window.activateWindow()
+            self._page_changed()
+
+    def classic_visible(self) -> bool:
+        return self.web is None or (self.tools_window is not None and self.tools_window.isVisible())
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -347,6 +427,8 @@ class MainWindow(QMainWindow):
         self._page_changed()
 
     def _page_changed(self) -> None:
+        if self.web is not None and not self.classic_visible():
+            return  # the live view of the new interface turns the preview on and off itself
         self.ctx.engine.set_preview(self.current_page() in (self.vision, self.diagnostics))
 
     def _restore_geometry(self) -> None:
@@ -419,6 +501,8 @@ class MainWindow(QMainWindow):
         if not self.ctx.engine.start_automation():
             if mini:
                 self.show_full()
+            if self.web is not None:
+                return  # the page shows why, from the start report
             failed = [f"{n}: {d}" for n, ok, d in self.ctx.engine.start_report if not ok]
             QMessageBox.warning(self, "Could not start", "\n".join(failed) or "Fishing could not start.")
 
@@ -573,22 +657,31 @@ class MainWindow(QMainWindow):
             self._notify_events(events)
             if any(k in ("cycle", "error") for _, k, _ in events):
                 self._stats_dirty = True
-        self.dashboard.refresh(s)
-        self.fishing.refresh(s)
+        classic = self.classic_visible()
+        if classic:
+            self.dashboard.refresh(s)
+            self.fishing.refresh(s)
         if self.mini is not None and self.mini.isVisible():
             self.mini.refresh(s)
             if s.status not in (Status.RUNNING, Status.PAUSED):
                 self.show_full()  # fishing stopped: bring the full window back
-        self.vision.refresh(s, self.current_page() is self.vision)
-        if self.current_page() is self.logs:
-            self.logs.poll_log()
+        if classic:
+            self.vision.refresh(s, self.current_page() is self.vision)
+            if self.current_page() is self.logs:
+                self.logs.poll_log()
         if self.overlay.isVisible():
             game_rect = (*s.preview.screen_origin, *s.preview.client_size) if s.preview is not None else None
             self.overlay.update_state(s, self.ctx.profile, game_rect)
+        self.tray.update(s.status, s.session.catches)
+        self._tick += 1
+        if self._stats_dirty and self._tick % 15 == 0 and classic:
+            self._stats_dirty = False
+            self.logs.refresh_stats()
+        if not classic:
+            return
         locked = s.status in (Status.RUNNING, Status.PAUSED)
         self.profiles.set_locked(locked)
         self.profile_combo.setEnabled(not locked)
-        self.tray.update(s.status, s.session.catches)
         col = STATUS_COLORS[s.status.value]
         self.side_status.setText(s.status.value)
         self.side_status.setStyleSheet(f"color: {col};")
@@ -600,10 +693,6 @@ class MainWindow(QMainWindow):
                                                      (" (window found)" if s.window_found else " (window NOT found)")))
         self.sb_fps.setText(f"{s.fps:.0f} FPS" if s.status != Status.STOPPED else "Vision idle")
         self.sb_keys.setText("Global hotkeys on" if self.ctx.global_hotkeys else "Hotkeys: app window only")
-        self._tick += 1
-        if self._stats_dirty and self._tick % 15 == 0:
-            self._stats_dirty = False
-            self.logs.refresh_stats()
 
     # ------------------------------------------------------------------ shutdown
     def detach(self) -> None:
@@ -620,6 +709,10 @@ class MainWindow(QMainWindow):
         self.stats_timer.stop()
         self.tray.set_visible(False)
         self.overlay.close()
+        if self.web is not None:
+            self.web.timer.stop()
+        if self.tools_window is not None:
+            self.tools_window.close()
 
     def closeEvent(self, e):
         if self.rebuilding:
@@ -634,6 +727,10 @@ class MainWindow(QMainWindow):
             eng.stop_automation("application closed")
         if self.calibration is not None:
             self.calibration.close()
+        if self.tools_window is not None:
+            self.tools_window.close()
+        if self.web is not None:
+            self.web.timer.stop()
         self.overlay.close()
         self.timer.stop()
         self.tray.set_visible(False)

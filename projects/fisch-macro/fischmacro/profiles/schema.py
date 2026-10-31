@@ -359,6 +359,8 @@ class LoggingConfig:
 
 @dataclass
 class AppearanceConfig:
+    interface: str = opt("Modern", "Interface", "Modern is the new interface; Classic is the previous one.",
+                         choices=["Modern", "Classic"])
     theme: str = opt("Nebula", "Theme", choices=["Nebula", "Midnight Violet", "Deep Ocean", "Abyss Emerald", "Coral Reef",
                                                          "Arctic Light", "High Contrast"])
     text_size: str = opt("Comfortable", "Text size", choices=["Compact", "Comfortable", "Large"])
