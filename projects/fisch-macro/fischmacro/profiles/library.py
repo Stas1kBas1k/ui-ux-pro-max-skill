@@ -19,6 +19,9 @@ from fischmacro.profiles.schema import DetectionConfig, LibraryConfig, Profile, 
 from fischmacro.rods import behaviour_for
 
 DEFAULT_SKIN = "Default"
+# Rods with the normal catch bar and no tuned settings share one configuration under this name.
+BASIC_GROUP = "Basic Rods"
+
 
 
 def _norm(s: str) -> str:
@@ -45,6 +48,14 @@ def recommended_kind(rod: str) -> tuple[str, str]:
     p = Profile()
     apply_preset(p, preset)
     return p.minigame.kind, preset.note
+
+
+def is_basic(rod: str) -> bool:
+    return rod != BASIC_GROUP and recommended_kind(rod) == ("none", "")
+
+
+def basic_rods() -> list[str]:
+    return [r for r in ALL_RODS if is_basic(r)]
 
 
 class RodLibrary:
@@ -98,7 +109,9 @@ class RodLibrary:
     def search(self, text: str = "", category: str = "All") -> list[str]:
         t = _norm(text)
         rods = [r for r in ALL_RODS if not t or t in _norm(r)]
-        if category == "Special minigame":
+        if category == "Basic rods":
+            rods = [r for r in rods if is_basic(r)]
+        elif category == "Special minigame":
             rods = [r for r in rods if recommended_kind(r)[0] != "none" or recommended_kind(r)[1]]
         elif category == "Favourites":
             rods = [r for r in rods if r in self.cfg.favourites]

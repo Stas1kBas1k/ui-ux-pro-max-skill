@@ -43,6 +43,7 @@ class MinigameSolver:
         self._click_segments: list = []
         self._last_now: float | None = None
         self.fired_segment: tuple[float, float] | None = None  # Lullaby: section already clicked this pass
+        self.fired_dir = 0  # Lullaby: pendulum direction when it was clicked (a turn starts a new pass)
         # Stellarwave state machine: AIM -> VERIFY -> (target changed: hit) AIM / (no change: miss) AIM
         self.stellar_state = "AIM"
         self.stellar_lit: int | None = None

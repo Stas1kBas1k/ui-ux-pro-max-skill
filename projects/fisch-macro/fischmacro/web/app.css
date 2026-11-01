@@ -367,3 +367,14 @@ body.drawer .main { padding-right: 478px; }
 .rod-pic { display: inline-grid; place-items: center; border-radius: 26%; overflow: hidden; flex: none;
   background: radial-gradient(circle at 70% 25%, hsl(var(--h) 45% 30%), hsl(calc(var(--h) + 40) 55% 11%)); }
 .rod-pic img { width: 86%; height: 86%; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .55)); }
+
+/* "Basic Rods": one folder card for every rod with the normal catch bar */
+.rod.group { border-color: var(--accent-line); background: linear-gradient(135deg, var(--accent-soft), var(--surface) 70%); }
+.group-art { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; position: relative; line-height: 1;
+  background: rgba(124, 92, 255, .18); color: #c9bdff; flex: none; }
+.group-art b { position: absolute; right: -8px; top: -7px; font-size: 10.5px; line-height: 16px; font-weight: 700; background: var(--accent); color: #fff;
+  border-radius: 999px; padding: 1px 6px; }
+.tag.link { border: 0; cursor: pointer; color: #c9bdff; background: var(--accent-soft); }
+.tag.link:hover { background: rgba(124, 92, 255, .3); }
+
+.chip { white-space: nowrap; }

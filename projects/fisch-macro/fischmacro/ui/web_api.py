@@ -15,7 +15,7 @@ import cv2
 
 from fischmacro import APP_NAME, __version__, licensing
 from fischmacro.automation.engine import Status
-from fischmacro.profiles.library import DEFAULT_SKIN, RodLibrary, is_dirty
+from fischmacro.profiles.library import BASIC_GROUP, DEFAULT_SKIN, RodLibrary, basic_rods, is_basic, is_dirty
 from fischmacro.profiles.manager import ProfileError
 from fischmacro.profiles.schema import field_meta, to_dict
 from fischmacro.rods import behaviour_for
@@ -169,7 +169,17 @@ class WebApi:
         self.lib.refresh()
         out = []
         active_rod = self.ctx.profile.equipment.rod_name
+        grouped = not query.strip() and category == "All"
+        if grouped:  # one folder card for every rod with the normal catch bar
+            n = len(basic_rods())
+            out.append({"name": BASIC_GROUP, "group": True, "kind": "none", "special": False,
+                        "behaviour": f"{n} rods with the normal catch bar - one shared setup",
+                        "configured": bool(self.lib.profiles_for(BASIC_GROUP)),
+                        "favourite": False, "active": active_rod == BASIC_GROUP,
+                        "hue": rod_hue(BASIC_GROUP, "none"), "img": None, "tuned": False, "count": n})
         for r in self.lib.search(query, category):
+            if grouped and is_basic(r):
+                continue
             info = self.lib.info(r)
             d = definition(r)
             out.append({"name": r, "kind": info.kind, "special": info.special,
@@ -179,8 +189,9 @@ class WebApi:
                         "active": r == active_rod, "hue": rod_hue(r, info.kind), "img": self._img(r),
                         "tuned": bool(info.preset_note)})
         from fischmacro.game_data import ALL_RODS
-        return {"rods": out, "count": len(out), "total": len(ALL_RODS), "categories": ["All", "Special minigame", "Favourites",
-                                                                 "Recent", "Configured"]}
+        count = sum(x.get("count", 1) for x in out)
+        return {"rods": out, "count": count, "total": len(ALL_RODS),
+                "categories": ["All", "Basic rods", "Special minigame", "Favourites", "Recent", "Configured"]}
 
     def api_rod__favourite(self, rod: str) -> dict:
         on = self.lib.toggle_favourite(rod)
@@ -188,6 +199,8 @@ class WebApi:
         return {"favourite": on}
 
     def api_rod__open(self, rod: str, skin: str = DEFAULT_SKIN) -> dict:
+        if is_basic(rod):
+            rod = BASIC_GROUP  # every rod with the normal catch bar shares one configuration
         self.draft, created = self.lib.load_or_create(rod, skin, self.ctx.profile)
         self.saved = None if created else copy.deepcopy(self.draft)
         self.draft_rod, self.draft_skin = rod, skin
@@ -244,7 +257,8 @@ class WebApi:
     def _draft_view(self) -> dict:
         d = self.draft
         rod = self.draft_rod or d.equipment.rod_name
-        return {"profile": d.name, "rod": rod, "skin": self.draft_skin if self.draft_rod else
+        return {"profile": d.name, "rod": rod, "group": rod == BASIC_GROUP, "group_count": len(basic_rods()),
+                "skin": self.draft_skin if self.draft_rod else
                 (d.equipment.skin or DEFAULT_SKIN), "skins": self.lib.skins_for(rod) if rod else [DEFAULT_SKIN],
                 "saved": self.saved is not None, "dirty": is_dirty(d, self.saved),
                 "in_use": d.name == self.ctx.profile.name, "schema": editor_schema(d),

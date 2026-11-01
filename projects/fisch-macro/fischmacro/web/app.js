@@ -252,15 +252,22 @@ views.library = {
     $("#l-cats").querySelectorAll("[data-cat]").forEach((b) => (b.onclick = () => { this.category = b.dataset.cat; this.load(); }));
     $("#l-count").textContent = `${r.count} rod${r.count === 1 ? "" : "s"}`;
     $("#l-q").placeholder = `Search ${r.total || r.count} rods`;
-    $("#l-grid").innerHTML = r.rods.length ? r.rods.map((x) => `
+    $("#l-grid").innerHTML = r.rods.length ? r.rods.map((x) => x.group ? `
+      <div class="rod group ${x.name === this.sel ? "sel" : ""}" data-rod="${esc(x.name)}" role="button" tabindex="0" aria-label="${esc(x.name)}">
+        <span class="group-art">${icon("folder", 24)}<b>${x.count}</b></span>
+        <div class="grow"><div class="rod-name ellipsis">${esc(x.name)}</div><div class="rod-sub">${esc(x.behaviour)}</div>
+          <div class="rod-tags">${x.configured ? '<span class="tag ok">Configured</span>' : ""}${x.active ? '<span class="tag ok">In use</span>' : ""}
+            <button class="tag link" data-cat-go="Basic rods" type="button">See all</button></div></div>
+      </div>` : `
       <div class="rod ${x.name === this.sel ? "sel" : ""}" data-rod="${esc(x.name)}" role="button" tabindex="0" aria-label="${esc(x.name)}">
         <span class="rod-art">${rodPic(x.img, x.hue, 52, x.special)}</span>
         <div class="grow"><div class="rod-name ellipsis">${esc(x.name)}</div><div class="rod-sub ellipsis">${esc(x.behaviour)}</div>
           <div class="rod-tags">${x.special ? '<span class="tag accent">Special</span>' : x.tuned ? '<span class="tag">Tuned</span>' : ""}${x.configured ? '<span class="tag ok">Configured</span>' : ""}${x.active ? '<span class="tag ok">In use</span>' : ""}</div></div>
         <button class="star-btn ${x.favourite ? "on" : ""}" data-fav="${esc(x.name)}" type="button" aria-label="Favourite ${esc(x.name)}" aria-pressed="${x.favourite}">${icon("star", 16)}</button>
       </div>`).join("") : `<div class="lib-empty">No rod matches "${esc(this.query)}".</div>`;
+    $("#l-grid").querySelectorAll("[data-cat-go]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); this.category = b.dataset.catGo; this.load(); }));
     $("#l-grid").querySelectorAll("[data-rod]").forEach((el) => {
-      el.onclick = (e) => { if (!e.target.closest("[data-fav]")) this.open(el.dataset.rod); };
+      el.onclick = (e) => { if (!e.target.closest("[data-fav]") && !e.target.closest("[data-cat-go]")) this.open(el.dataset.rod); };
       el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.open(el.dataset.rod); } };
     });
     $("#l-grid").querySelectorAll("[data-fav]").forEach((b) => (b.onclick = async () => {
@@ -291,7 +298,7 @@ views.library = {
           <div class="row small" style="gap:6px 8px;margin-top:6px;flex-wrap:wrap">${sch.special ? `<span class="tag accent">${esc(sch.behaviour)}</span>` : '<span class="tag">Standard reel</span>'}
             <span class="faint">${esc(sch.status_text)}</span></div></div>
         <button class="btn btn-icon btn-ghost" id="l-close" type="button" aria-label="Close">${icon("x", 18)}</button></div>
-      <p class="detail-note">${esc(sch.note)}</p>
+      <p class="detail-note">${d.group ? `One setup for all ${d.group_count} rods with the normal catch bar (Carbon Rod, Masterline Rod, ...). Rods with their own minigame or tuned settings have their own card.` : esc(sch.note)}</p>
       <div class="section-label" style="margin-top:22px">Skin</div>
       <div class="skins">${d.skins.map((s) => `<button class="skin ${s === d.skin ? "on" : ""}" data-skin="${esc(s)}" type="button">${rodArt((d.hue + (s === "Default" ? 0 : hashHue(s))) % 360, 40, sch.special)}<span class="ellipsis" style="max-width:70px">${esc(s)}</span></button>`).join("")}
         <button class="skin" id="l-addskin" type="button"><span class="add">${icon("plus", 18)}</span>Add skin</button></div>

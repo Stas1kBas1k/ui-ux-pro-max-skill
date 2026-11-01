@@ -90,6 +90,27 @@ def test_choose_rod_and_skin_then_use_it(api, ctx):
     assert len(names) >= 3
 
 
+def test_basic_rods_share_one_setup(api, ctx):
+    r = api.call("rods")
+    group = r["rods"][0]
+    assert group["group"] and group["name"] == "Basic Rods" and group["count"] > 200
+    assert r["count"] == r["total"] and "Masterline Rod" not in [x["name"] for x in r["rods"]]
+    assert any(x["name"] == "Lullaby" for x in r["rods"])  # special rods keep their own card
+    assert [x["name"] for x in api.call("rods", {"query": "masterline"})["rods"]] == ["Masterline Rod"]
+    d = api.call("rod.open", {"rod": "Masterline Rod"})
+    assert d["rod"] == "Basic Rods" and d["group"]
+    api.call("draft.save", {"use": True})
+    assert ctx.profile.equipment.rod_name == "Basic Rods"
+    assert len(api.call("rods", {"category": "Basic rods"})["rods"]) == group["count"]
+    ctx.settings.notifications.auto_profiles = True
+    ctx.handle_rod("Carbon Rod")  # a basic rod read off the screen: stays on the shared setup
+    assert ctx.profile.equipment.rod_name == "Basic Rods"
+    ctx.handle_rod("Lullaby")
+    assert ctx.profile.equipment.rod_name == "Lullaby"
+    ctx.handle_rod("Carbon Rod")
+    assert ctx.profile.equipment.rod_name == "Basic Rods"
+
+
 def test_profile_editor_save_revert_and_manage(api, ctx):
     d = api.call("profile.open", {"name": ctx.profile.name})
     d = api.call("draft.set", {"path": "casting.mode", "value": "timed"})

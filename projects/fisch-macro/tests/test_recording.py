@@ -160,6 +160,25 @@ def test_lullaby_gauge_found_when_the_region_is_off(off):
     assert min(p for p, _ in seen) < 0.15 and max(p for p, _ in seen) > 0.8
 
 
+def test_lullaby_clicks_every_pass_once(monkeypatch):
+    """Every pass of the pendulum over the lit part gets exactly one click, inside it, with no pause between
+    hits. The clip has 4 passes (one turns around at the far end of the lit part). The 1.2 s start-of-reel
+    wait is switched off here only so the short clip can be judged."""
+    import fischmacro.rods.lullaby as lullaby
+    from fischmacro.diagnostics.replay import replay
+    import tempfile
+    monkeypatch.setattr(lullaby, "LULLABY_GRACE", 0.0)
+    tmp = Path(tempfile.mkdtemp())
+    for k, img in enumerate(_lullaby_frames()):
+        cv2.imwrite(str(tmp / f"{k:04d}.jpg"), img)
+    res = replay(sorted(str(p) for p in tmp.glob("*.jpg")), "lullaby", fps=30)
+    clicks = [r for r in res.rows if "down" in r["inputs"]]
+    assert len(clicks) == 4
+    for r in clicks:
+        parts = [tuple(map(float, x.split("-"))) for x in r["lit_parts"].split(";") if x]
+        assert any(a <= r["pendulum"] <= b for a, b in parts)
+
+
 def test_lullaby_clicks_only_inside_the_lit_part():
     from fischmacro.diagnostics.replay import replay
     import tempfile

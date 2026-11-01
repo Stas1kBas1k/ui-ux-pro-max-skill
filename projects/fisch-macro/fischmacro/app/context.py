@@ -207,6 +207,13 @@ class AppContext(QObject):
         if current and current != "any rod" and fuzzy_contains(rod, current):
             return  # already on this rod
         matches = self._profiles_for_rod(rod)
+        from fischmacro.profiles.library import BASIC_GROUP, is_basic
+        if not matches and is_basic(rod):
+            # a rod with the normal catch bar: the shared "Basic Rods" configuration
+            if normalize(self.profile.equipment.rod_name) == normalize(BASIC_GROUP):
+                return
+            rod = BASIC_GROUP
+            matches = self._profiles_for_rod(rod)
         if matches:
             self._use_profile(matches[0])
             self.notice.emit("Rod profile", f"{rod} detected - using profile '{matches[0].name}'")
@@ -221,6 +228,9 @@ class AppContext(QObject):
         # a new rod starts from clean colours: never carry over the previous rod's or skin's colours
         from fischmacro.profiles.schema import DetectionConfig
         p.detection = DetectionConfig()
+        from fischmacro.profiles.schema import Profile as _Fresh
+        fresh = _Fresh()  # recommended tracking and no rod minigame, then the rod's own preset
+        p.reel, p.minigame = fresh.reel, fresh.minigame
         preset = find_preset(rod)
         if preset:
             apply_preset(p, preset)

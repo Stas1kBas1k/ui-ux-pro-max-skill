@@ -21,22 +21,26 @@ from fischmacro.rods import STATUS_TEXT, behaviour_for
 SENSITIVITY = "reel.sensitivity"   # virtual field: one slider for the controller's gains
 
 
-# Sensitivity 1-10 sets the controller gains and the shortest hold / release. 5 (the default) is calm:
-# about 6 clicks a second in the test game instead of 11-14; 10 is the old, twitchier default.
+# Sensitivity 1-10 sets how hard the bar chases the fish. Damping is three times the earlier value at every
+# level: the bar settles under the fish instead of swinging past it (test game, hard fish: off-centre 0.31 ->
+# 0.25 bar widths, time in the bar 82% -> 88%), with many short clicks (no minimum hold time).
+DAMPING = 1.35  # kd per unit of gain (was 0.45)
+
+
 def _gain(s: int) -> float:
-    return 0.4 + 0.06 * s
+    return 0.5 + s / 10
 
 
 def sensitivity(profile: Profile) -> int:
-    return max(1, min(10, round((profile.reel.kp / 3.0 - 0.4) / 0.06)))
+    return max(1, min(10, round((profile.reel.kp / 3.0 - 0.5) * 10)))
 
 
 def set_sensitivity(profile: Profile, s: int) -> None:
     s = max(1, min(10, int(s)))
     k = _gain(s)
     r = profile.reel
-    r.kp, r.kd, r.feedforward = round(3.0 * k, 2), round(0.45 * k, 2), round(0.25 * k, 2)
-    r.min_switch_ms = max(0, 100 - 10 * s)
+    r.kp, r.kd, r.feedforward = round(3.0 * k, 2), round(DAMPING * k, 2), round(0.25 * k, 2)
+    r.min_switch_ms = 0
 
 
 @dataclass(frozen=True)
@@ -73,7 +77,7 @@ BASE_SECTIONS: list[tuple[str, list[tuple[str, bool]]]] = [
     ("Fish tracking", [("reel.mode", True), (SENSITIVITY, True), ("reel.mpc_margin", False),
                        ("reel.lookahead", False), ("reel.smoothing", False), ("reel.auto_hover", False),
                        ("reel.min_confidence", False), ("reel.lost_fish_timeout", False),
-                       ("reel.min_switch_ms", False), ("reel.calm_zone", False),
+                       ("reel.min_switch_ms", False), ("reel.calm_zone", False), ("reel.wall_rule", False),
                        ("reel.edge_margin", False), ("reel.max_hold_seconds", False)]),
     ("Casting", [("casting.mode", True), ("casting.pre_cast_delay", False), ("casting.hold_seconds", False),
                  ("casting.perfect_threshold", False), ("casting.jitter", False)]),
@@ -119,9 +123,10 @@ def _meta(path: str) -> dict:
         meta.update(label=label, help=help_text)
         return meta
     if path == SENSITIVITY:
-        return dict(label="Sensitivity", help="How hard the bar chases the fish. Lower is calmer: fewer, longer "
-                                              "clicks. Raise it only if the bar is too slow to follow the fish.",
-                    min=1, max=10, step=1, decimals=0, choices=None, kind="slider", suffix="", ends=["Calm", "Quick"])
+        return dict(label="Sensitivity", help="How hard the bar chases the fish. The bar is damped so it stays "
+                                              "under the fish instead of swinging past it. Raise it if the bar is "
+                                              "too slow to follow; lower it if it overshoots.",
+                    min=1, max=10, step=1, decimals=0, choices=None, kind="slider", suffix="", ends=["Gentle", "Fast"])
     section, name = path.split(".")
     cls = type(getattr(Profile(), section))
     return dict(field_meta(cls)).get(name, {"label": name})

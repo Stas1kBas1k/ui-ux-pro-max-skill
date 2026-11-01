@@ -171,9 +171,9 @@ class ReelConfig:
                              step=0.05, decimals=2, suffix=" s")
     mpc_margin: float = opt(0.15, "Precision safety margin", "Keeps the fish this far inside the bar edges (fraction of "
                             "bar width).", min=0.0, max=0.45, step=0.05, decimals=2)
-    kp: float = opt(2.1, "Response strength (Kp)", "Proportional gain on fish/bar error.", min=0.0, max=20.0, step=0.1, decimals=2)
-    kd: float = opt(0.32, "Damping (Kd)", "Derivative gain; reduces overshoot.", min=0.0, max=5.0, step=0.05, decimals=2)
-    feedforward: float = opt(0.18, "Velocity feed-forward", "Adds fish velocity to the command.", min=0.0, max=3.0, step=0.05, decimals=2)
+    kp: float = opt(3.0, "Response strength (Kp)", "Proportional gain on fish/bar error.", min=0.0, max=20.0, step=0.1, decimals=2)
+    kd: float = opt(1.35, "Damping (Kd)", "Derivative gain; reduces overshoot.", min=0.0, max=5.0, step=0.05, decimals=2)
+    feedforward: float = opt(0.25, "Velocity feed-forward", "Adds fish velocity to the command.", min=0.0, max=3.0, step=0.05, decimals=2)
     lookahead: float = opt(0.08, "Prediction look-ahead", "Seconds of fish motion to predict.", min=0.0, max=0.5, step=0.01, decimals=2, suffix=" s")
     smoothing: float = opt(0.5, "Velocity smoothing", "0 = raw, 0.95 = very smooth.", min=0.0, max=0.95, step=0.05, decimals=2)
     hold_bias: float = opt(0.5, "Hover duty", "Fraction of time held that keeps the bar still (rod dependent).", min=0.05, max=0.95, step=0.01, decimals=2)
@@ -182,9 +182,11 @@ class ReelConfig:
     edge_margin: float = opt(0.07, "Edge margin", "Near an edge the bar is driven fully toward it.", min=0.0, max=0.3, step=0.01, decimals=2)
     max_hold_seconds: float = opt(3.0, "Max continuous hold", "Safety limit on holding the mouse.", min=0.2, max=15.0, step=0.1, decimals=1, suffix=" s")
     min_confidence: float = opt(0.45, "Reel min confidence", "Below this the mouse is released.", min=0.05, max=0.99, step=0.05, decimals=2)
-    min_switch_ms: int = opt(50, "Shortest hold / release", "The mouse is held or released for at least this "
+    min_switch_ms: int = opt(0, "Shortest hold / release", "The mouse is held or released for at least this "
                              "long. Higher is calmer (fewer, longer clicks); 0 reacts every frame. Set by "
                              "Sensitivity.", min=0, max=150, suffix=" ms")
+    wall_rule: bool = opt(True, "Hold or release at the walls", "When the fish is at the left wall the mouse is "
+                          "released, at the right wall it is held, whatever the bar is doing.")
     calm_zone: float = opt(0.2, "Calm zone", "Shortest hold / release only applies while the fish is within this "
                            "share of the bar width from its centre (0.5 = the bar edge); outside it the bar reacts at "
                            "once.", min=0.0, max=1.0, step=0.05, decimals=2)
@@ -218,7 +220,8 @@ class MinigameConfig:
     axis: str = opt("horizontal", "Track direction", choices=["horizontal", "vertical"])
     lead_ms: int = opt(30, "Input lead", "Fire this much early to cover input + frame latency.", min=0, max=300,
                        suffix=" ms")
-    min_interval: float = opt(0.25, "Min time between hits", min=0.05, max=3.0, step=0.05, decimals=2, suffix=" s")
+    min_interval: float = opt(0.0, "Min time between hits", "0 = click on every lit part as soon as the pendulum "
+                              "gets there (one click per pass).", min=0.0, max=3.0, step=0.05, decimals=2, suffix=" s")
     # Stellarwave
     symbol_color: str = opt("#FFFFFF", "Star sign colour", kind="color")
     symbol_tolerance: int = opt(45, "Star sign tolerance", min=0, max=128)
@@ -268,7 +271,7 @@ class EquipmentConfig:
 @dataclass
 class Profile:
     name: str = "Default"
-    revision: int = 2  # profile format; older files are upgraded on load (manager.upgrade)
+    revision: int = 3  # profile format; older files are upgraded on load (manager.upgrade)
     notes: str = ""
     regions: dict[str, Region] = field(default_factory=lambda: copy.deepcopy(DEFAULT_REGIONS))
     detection: DetectionConfig = field(default_factory=DetectionConfig)

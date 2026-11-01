@@ -125,8 +125,8 @@ def test_new_rod_creates_profile_with_preset(ctx):
     assert ctx.profile.minigame.kind == "lullaby"
     assert ctx.profiles.exists(ctx.profile.name)
     first = ctx.profile.name
-    ctx.handle_rod("Rod of the Depths")
-    assert ctx.profile.name.startswith("Rod of the Depths") and ctx.profile.minigame.kind == "lullaby"
+    ctx.handle_rod("Rod of the Depths")  # a normal rod: the shared Basic Rods setup, without Lullaby's minigame
+    assert ctx.profile.name == "Basic Rods" and ctx.profile.minigame.kind == "none"
     ctx.handle_rod("Lullaby Rod")        # known rod again: switch back, no new profile
     assert ctx.profile.name == first
     assert len(ctx.profiles.names()) == 3

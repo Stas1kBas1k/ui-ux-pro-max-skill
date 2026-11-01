@@ -175,9 +175,11 @@ class ReelController:
         reason = "pd"
 
         # Edge rules: near a wall the bar should be pinned against it.
-        if fish_x <= c.edge_margin and bar_left <= c.edge_margin * 1.5:
+        # With wall_rule the fish alone decides: at the left wall release, at the right wall hold.
+        wall = getattr(c, "wall_rule", False)
+        if fish_x <= c.edge_margin and (wall or bar_left <= c.edge_margin * 1.5):
             duty, reason = 0.0, "edge-left"
-        elif fish_x >= 1 - c.edge_margin and bar_right >= 1 - c.edge_margin * 1.5:
+        elif fish_x >= 1 - c.edge_margin and (wall or bar_right >= 1 - c.edge_margin * 1.5):
             duty, reason = 1.0, "edge-right"
 
         precision = c.mode == "precision" and self.plant.ready

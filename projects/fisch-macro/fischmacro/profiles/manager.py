@@ -158,24 +158,28 @@ class SettingsStore:
 
 
 def upgrade(profile: Profile, raw: dict) -> Profile:
-    """Bring a profile saved by an older version up to date. Only values still at the old default change;
+    """Bring a profile saved by an older version up to date. Only values still at an old default change;
     anything the player set by hand is kept."""
-    if not isinstance(raw, dict) or int(raw.get("revision", 1) or 1) >= 2:
+    rev = int(raw.get("revision", 1) or 1) if isinstance(raw, dict) else 3
+    if rev >= 3:
         return profile
-    # revision 2: recast sooner after a catch, and a calmer Sensitivity scale
     t, c, r = profile.timing, profile.casting, profile.reel
-    if abs(t.post_catch_delay - 1.6) < 1e-6:
-        t.post_catch_delay = 0.5
-    if abs(c.pre_cast_delay - 0.35) < 1e-6:
-        c.pre_cast_delay = 0.15
-    if abs(r.end_grace - 0.6) < 1e-6:
-        r.end_grace = 0.35
+    if rev < 2:  # revision 2: recast sooner after a catch, re-equip a stuck rod
+        if abs(t.post_catch_delay - 1.6) < 1e-6:
+            t.post_catch_delay = 0.5
+        if abs(c.pre_cast_delay - 0.35) < 1e-6:
+            c.pre_cast_delay = 0.15
+        if abs(r.end_grace - 0.6) < 1e-6:
+            r.end_grace = 0.35
+        profile.equipment.reequip_on_recovery = True
+    # revision 3: damped tracking that stays centred with many clicks, Lullaby on every lit part
     from fischmacro.rods.config import set_sensitivity
-    for old in range(1, 11):  # gains set by the old Sensitivity slider: same number, new (calmer) meaning
-        k = 0.5 + old / 10
+    for s in range(1, 11):  # gains set by an earlier Sensitivity slider: keep the number, new tracking
+        k = 0.5 + s / 10 if rev < 2 else 0.4 + 0.06 * s  # the scale that profile was saved with
         if abs(r.kp - round(3.0 * k, 2)) < 1e-6 and abs(r.kd - round(0.45 * k, 2)) < 1e-6:
-            set_sensitivity(profile, old)
+            set_sensitivity(profile, s)
             break
-    profile.equipment.reequip_on_recovery = True  # now the way out of a reel the game left stuck
-    profile.revision = 2
+    if abs(profile.minigame.min_interval - 0.25) < 1e-6:
+        profile.minigame.min_interval = 0.0
+    profile.revision = 3
     return profile
