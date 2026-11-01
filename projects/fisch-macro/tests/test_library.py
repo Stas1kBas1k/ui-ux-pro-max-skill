@@ -42,7 +42,8 @@ def test_skins_get_their_own_profile_built_from_the_rods_tuning(lib):
     p.detection.fish_color = "#123456"
     lib.save(p)
     lib.add_skin("Lullaby", "Toothly Interstellar")
-    assert lib.skins_for("Lullaby") == ["Default", "Toothly Interstellar"]
+    skins = lib.skins_for("Lullaby")  # the wiki's Lullaby skins, then the ones added by hand
+    assert skins[0] == "Default" and "Hollowed Harp" in skins and skins[-1] == "Toothly Interstellar"
     sk, created = lib.load_or_create("Lullaby", "Toothly Interstellar", Profile())
     assert created and sk.name == "Lullaby - Toothly Interstellar"
     assert sk.reel.kp == 4.2, "keeps the rod's tuning"

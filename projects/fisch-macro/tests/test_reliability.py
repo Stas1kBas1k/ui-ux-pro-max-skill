@@ -39,15 +39,27 @@ def test_repeated_start_stop_never_leaves_duplicate_engines():
     assert wait_for(lambda: not _engine_threads(), 3)
 
 
-def test_start_reports_the_failing_stage():
+def test_start_reports_the_failing_stage(monkeypatch):
     p = Profile()
-    p.regions["reel"].w = 0.0
+    monkeypatch.setattr(Profile, "validate", lambda self: ["something that cannot be repaired"])
     eng = AutomationEngine(sim_settings(), p)
     try:
         assert not eng.start_automation()
         failed = [n for n, ok, _ in eng.start_report if not ok]
         assert failed == ["profile valid"]
         assert eng.status == Status.STOPPED and not _engine_threads()
+    finally:
+        eng.shutdown()
+
+
+def test_start_repairs_broken_reel_and_shake_regions():
+    p = Profile()
+    p.regions["reel"].w = 0.0
+    p.regions["shake"].enabled = False
+    eng = AutomationEngine(sim_settings(), p)
+    try:
+        assert eng.start_automation(), eng.start_report
+        assert not p.validate()
     finally:
         eng.shutdown()
 

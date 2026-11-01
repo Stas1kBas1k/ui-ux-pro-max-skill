@@ -160,8 +160,8 @@ class SettingsStore:
 def upgrade(profile: Profile, raw: dict) -> Profile:
     """Bring a profile saved by an older version up to date. Only values still at an old default change;
     anything the player set by hand is kept."""
-    rev = int(raw.get("revision", 1) or 1) if isinstance(raw, dict) else 3
-    if rev >= 3:
+    rev = int(raw.get("revision", 1) or 1) if isinstance(raw, dict) else 4
+    if rev >= 4:
         return profile
     t, c, r = profile.timing, profile.casting, profile.reel
     if rev < 2:  # revision 2: recast sooner after a catch, re-equip a stuck rod
@@ -174,12 +174,17 @@ def upgrade(profile: Profile, raw: dict) -> Profile:
         profile.equipment.reequip_on_recovery = True
     # revision 3: damped tracking that stays centred with many clicks, Lullaby on every lit part
     from fischmacro.rods.config import set_sensitivity
-    for s in range(1, 11):  # gains set by an earlier Sensitivity slider: keep the number, new tracking
+    for s in range(1, 11 if rev < 3 else 1):  # gains set by an earlier Sensitivity slider: keep the number, new tracking
         k = 0.5 + s / 10 if rev < 2 else 0.4 + 0.06 * s  # the scale that profile was saved with
         if abs(r.kp - round(3.0 * k, 2)) < 1e-6 and abs(r.kd - round(0.45 * k, 2)) < 1e-6:
             set_sensitivity(profile, s)
             break
-    if abs(profile.minigame.min_interval - 0.25) < 1e-6:
+    if rev < 3 and abs(profile.minigame.min_interval - 0.25) < 1e-6:
         profile.minigame.min_interval = 0.0
-    profile.revision = 3
+    if rev < 4 and profile.detection.auto_adapt:
+        # revision 4: older versions saved what live adaptation guessed (moved regions, sampled colours), which
+        # could leave a rod that never reels again. Back to the built-in setup; Calibrate saves a new one.
+        from fischmacro.vision.autocal import reset_screen_setup
+        reset_screen_setup(profile)
+    profile.revision = 4
     return profile

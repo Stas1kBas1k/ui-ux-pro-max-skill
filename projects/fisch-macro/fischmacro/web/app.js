@@ -205,7 +205,9 @@ views.dashboard = {
     $("#d-pause").hidden = !run;
     $("#d-pause").innerHTML = paused ? `${icon("play", 15)} Resume` : `${icon("pause", 15)} Pause`;
     let banner = "";
-    if (S.error) banner = `<div class="banner bad">${icon("alert", 18)}<div>${esc(S.error)}</div></div>`;
+    const failed = !run && (S.start_report || []).filter((x) => !x.ok && x.stage !== "game focused");
+    if (failed && failed.length) banner = `<div class="banner bad">${icon("alert", 18)}<div><b>Fishing did not start:</b> ${failed.map((f) => esc(f.stage + (f.detail ? " - " + f.detail : ""))).join("; ")}</div></div>`;
+    else if (S.error) banner = `<div class="banner bad">${icon("alert", 18)}<div>${esc(S.error)}</div></div>`;
     else if (S.observe_only) banner = `<div class="banner info">${icon("eye", 18)}<div>Observe only is on: the macro watches and decides, but sends no input. Turn it off in Settings.</div></div>`;
     else if (S.simulated) banner = `<div class="banner info">${icon("info", 18)}<div>Test mode: the built-in test game is used and nothing is sent to Roblox.</div></div>`;
     $("#d-banner").innerHTML = banner;
@@ -262,7 +264,7 @@ views.library = {
       <div class="rod ${x.name === this.sel ? "sel" : ""}" data-rod="${esc(x.name)}" role="button" tabindex="0" aria-label="${esc(x.name)}">
         <span class="rod-art">${rodPic(x.img, x.hue, 52, x.special)}</span>
         <div class="grow"><div class="rod-name ellipsis">${esc(x.name)}</div><div class="rod-sub ellipsis">${esc(x.behaviour)}</div>
-          <div class="rod-tags">${x.special ? '<span class="tag accent">Special</span>' : x.tuned ? '<span class="tag">Tuned</span>' : ""}${x.configured ? '<span class="tag ok">Configured</span>' : ""}${x.active ? '<span class="tag ok">In use</span>' : ""}</div></div>
+          <div class="rod-tags">${x.special ? '<span class="tag accent">Special</span>' : x.support === "needs-footage" ? '<span class="tag warn">Needs clip</span>' : x.custom_ui ? '<span class="tag">Custom UI</span>' : x.tuned ? '<span class="tag">Tuned</span>' : ""}${x.configured ? '<span class="tag ok">Configured</span>' : ""}${x.active ? '<span class="tag ok">In use</span>' : ""}</div></div>
         <button class="star-btn ${x.favourite ? "on" : ""}" data-fav="${esc(x.name)}" type="button" aria-label="Favourite ${esc(x.name)}" aria-pressed="${x.favourite}">${icon("star", 16)}</button>
       </div>`).join("") : `<div class="lib-empty">No rod matches "${esc(this.query)}".</div>`;
     $("#l-grid").querySelectorAll("[data-cat-go]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); this.category = b.dataset.catGo; this.load(); }));
@@ -298,7 +300,12 @@ views.library = {
           <div class="row small" style="gap:6px 8px;margin-top:6px;flex-wrap:wrap">${sch.special ? `<span class="tag accent">${esc(sch.behaviour)}</span>` : '<span class="tag">Standard reel</span>'}
             <span class="faint">${esc(sch.status_text)}</span></div></div>
         <button class="btn btn-icon btn-ghost" id="l-close" type="button" aria-label="Close">${icon("x", 18)}</button></div>
-      <p class="detail-note">${d.group ? `One setup for all ${d.group_count} rods with the normal catch bar (Carbon Rod, Masterline Rod, ...). Rods with their own minigame or tuned settings have their own card.` : esc(sch.note)}</p>
+      ${d.mechanic ? `<div class="mech"><div class="mech-row"><b>In the game</b><span>${esc(d.mechanic.game)}</span></div>
+        <div class="mech-row"><b>Player</b><span>${esc(d.mechanic.player)}</span></div>
+        <div class="mech-row"><b>Macro</b><span>${esc(d.mechanic.macro)}</span></div>
+        ${d.mechanic.notes.map((n) => `<div class="mech-row"><b>Note</b><span>${esc(n)}</span></div>`).join("")}
+        <div class="mech-support ${esc(d.mechanic.support)}">${esc(d.mechanic.support_text)}${d.mechanic.availability ? ` · ${esc(d.mechanic.availability)}` : ""}</div></div>` : ""}
+      <p class="detail-note">${d.group ? `One setup for all ${d.group_count} rods with the normal catch bar (Carbon Rod, Kings Rod, ...). Rods with their own minigame, custom UI or tuned settings have their own card.` : esc(sch.note)}</p>
       <div class="section-label" style="margin-top:22px">Skin</div>
       <div class="skins">${d.skins.map((s) => `<button class="skin ${s === d.skin ? "on" : ""}" data-skin="${esc(s)}" type="button">${rodArt((d.hue + (s === "Default" ? 0 : hashHue(s))) % 360, 40, sch.special)}<span class="ellipsis" style="max-width:70px">${esc(s)}</span></button>`).join("")}
         <button class="skin" id="l-addskin" type="button"><span class="add">${icon("plus", 18)}</span>Add skin</button></div>
@@ -486,13 +493,25 @@ views.settings = {
   diagnostics(body) {
     body.innerHTML = `<div class="cols" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)">
       <div class="card pad"><div class="row" style="justify-content:space-between;margin-bottom:12px"><div class="section-title">Live view</div><span class="faint small" id="g-fps"></span></div>
+        <div class="row" style="gap:10px;margin-bottom:12px;flex-wrap:wrap"><span class="small muted">Test a rod mechanic</span>
+          <select class="select" id="g-mech" aria-label="Rod mechanic to test" style="width:auto"></select>
+          <span class="small" id="g-mech-seen"></span></div>
         <div class="liveview" id="g-live">Start fishing or press "Watch the game" to see the live view.</div>
-        <p class="faint small" style="margin:10px 0 0">Blue: catch bar · red: fish · yellow ring: next Stellarwave sign · green arc: Lullaby lit part · orange ticks: MiguRod marks.</p></div>
+        <p class="faint small" style="margin:10px 0 0">Blue: catch bar · red: fish · cyan circles: falling objects (time to land) · yellow ring: next Stellarwave sign · green arc: Lullaby lit part · orange ticks: MiguRod marks.</p></div>
       <div class="flow"><div class="card pad"><div class="section-title" style="margin-bottom:10px">Now</div><dl class="kv" id="g-now"></dl></div>
         <div class="card pad"><div class="section-title" style="margin-bottom:8px">Last inputs</div><div class="log" id="g-inputs"></div></div>
         <div class="card pad"><div class="section-title" style="margin-bottom:8px">Rod minigame</div><div class="log" id="g-mini"></div></div></div></div>`;
+    let mechFilled = false;
     const tick = async () => {
       const d = await api("diagnostics", { image: true });
+      if (!mechFilled && d.mechanics) {
+        mechFilled = true;
+        const sel = $("#g-mech");
+        sel.innerHTML = d.mechanics.map((m) => `<option value="${esc(m.kind)}" ${m.kind === d.mechanic ? "selected" : ""}>${esc(m.label)}</option>`).join("");
+        sel.onchange = async () => { await api("diagnostics.mechanic", { kind: sel.value });
+          toast(sel.value ? "Watching that mechanic - play a catch by hand; nothing is sent to the game" : "Mechanic test off"); };
+      }
+      $("#g-mech-seen").textContent = d.mechanic_seen || "";
       if (d.image) $("#g-live").innerHTML = `<img alt="Live view of the game with detections" src="${d.image}">`;
       $("#g-fps").textContent = d.fps ? `${d.fps} fps · ${d.vision_ms} ms per frame` : "";
       const t = d.tracking;

@@ -29,7 +29,7 @@ from fischmacro.automation.lullaby_mode import switch_lullaby_mode, visible_lull
 from fischmacro.game_data import LULLABY_MODES
 from fischmacro.automation.watchers import WatcherService
 from fischmacro.diagnostics.notify import DiscordNotifier
-from fischmacro.vision.autocal import AutoCalibrator, AutoCalResult, apply_result
+from fischmacro.vision.autocal import AutoCalibrator, AutoCalResult, apply_result, reset_screen_setup, screen_setup_differs
 from fischmacro.vision.capture import CaptureError, CaptureSource, ScreenCapture, SimulationCapture
 from fischmacro.vision.engine import Observation, VisionEngine
 from fischmacro.vision.frame import Frame, union_rect
@@ -232,6 +232,16 @@ class AutomationEngine:
             return False
         problems = self.profile.validate()
         if problems:
+            # A broken screen setup (e.g. moved by an older version's auto-adapt) used to make Start silently do
+            # nothing. Fall back to the built-in setup, which works without calibration on most screens.
+            log.warning("start: profile '%s' has a broken screen setup (%s) - using the built-in one",
+                        self.profile.name, "; ".join(problems))
+            repaired = reset_screen_setup(self.profile)
+            self._event("autocal", f"Screen setup was broken ({', '.join(repaired)}) - reset to the built-in one")
+            if self.on_profile_changed:
+                self.on_profile_changed("repair", {})
+            problems = self.profile.validate()
+        if problems:
             self._stage("profile valid", False, "; ".join(problems))
             return False
         self._stage("profile valid", True, self.profile.name)
@@ -269,6 +279,11 @@ class AutomationEngine:
             self.scheduler.reset(time.monotonic(), 0)
             self.addons.reset(time.monotonic())
             self._lullaby_mode_set = ""
+            # what the profile looks like now: live adaptation during this run is undone at Stop, so one bad
+            # guess can never break this rod's profile for the next Start
+            self._setup_at_start = (copy.deepcopy(self.profile.detection), copy.deepcopy(self.profile.regions))
+            self._adapted = False
+            self._healed = False
             self.fsm.start(time.monotonic())
             self._status = Status.RUNNING
         self._stage("input enabled", self.inputs.enabled, getattr(self.inputs.backend, "name", ""))
@@ -316,11 +331,20 @@ class AutomationEngine:
             was_active = self._status in (Status.RUNNING, Status.PAUSED)
             self.fsm.stop(time.monotonic(), reason)
             self.inputs.release_all()
+            self._undo_live_adaptation()
             if was_active:
                 self._status = Status.MONITORING if self._threads else Status.STOPPED
                 self._finish_session(reason)
         if was_active:
             self._event("info", f"Automation stopped: {reason}")
+
+    def _undo_live_adaptation(self) -> None:
+        if getattr(self, "_adapted", False) and getattr(self, "_setup_at_start", None):
+            self.profile.detection, self.profile.regions = copy.deepcopy(self._setup_at_start[0]), \
+                copy.deepcopy(self._setup_at_start[1])
+            self.vision.reset_background()
+            log.info("Live adaptation from this run undone (profile '%s' kept as saved)", self.profile.name)
+        self._adapted = False
 
     def emergency_stop(self) -> None:
         """Hard stop: kill switch on input, release everything, stop the FSM."""
@@ -425,7 +449,8 @@ class AutomationEngine:
 
     # ------------------------------------------------------------------ worker threads
     def _wanted_rect(self, win_w: int, win_h: int) -> tuple[int, int, int, int] | None:
-        names = self.vision.regions_for(self.fsm.state.value if self._status == Status.RUNNING else "IDLE")
+        names = self.vision.regions_for(self.fsm.state.value if self._status == Status.RUNNING else
+                                        "REELING" if self.vision.test_kind else "IDLE")
         rects = [self.profile.region(n).to_rect(win_w, win_h) for n in names
                  if self.profile.region(n).enabled and self.profile.region(n).is_valid()]
         if not rects:
@@ -533,7 +558,8 @@ class AutomationEngine:
         state = self.fsm.state.value if running else "IDLE"
         # while fishing, full frames (preview / periodic checks) run the same detectors as cropped ones plus the
         # disconnect check; leaving the rod minigame out of them reset Lullaby's pendulum history every time
-        wanted = (tuple(dict.fromkeys(self.vision.regions_for(state) + ("disconnect",))) if running else None)
+        wanted = (tuple(dict.fromkeys(self.vision.regions_for(state) + ("disconnect",))) if running else
+                  self.vision.regions_for("REELING") if self.vision.test_kind else None)
         obs = self.vision.process(frame, wanted, state if running else None)
         message = ""
         self._autocal_tick(frame, obs, now)
@@ -562,6 +588,7 @@ class AutomationEngine:
                         self.vision.reset_background()
                         self.fsm.resync(now, "focus regained")
                     self.fsm.update(obs, now)
+                self._self_heal()
                 if self.fsm.state == State.ERROR:
                     self._snap.last_error = self.fsm.history[-1][3] if self.fsm.history else "error"
                     self._on_fsm_error(frame, obs)
@@ -869,8 +896,12 @@ class AutomationEngine:
         d = self.profile.detection
         before = {"bar": d.bar_color, "fish": d.fish_color}
         with self._lock:
+            # live adaptation lasts for this run only (undone at Stop, never saved): one bad guess can no longer
+            # leave a rod that never reels again. Only the calibration the player starts is saved.
             changed = apply_result(self.profile, res, regions=wizard or reel_lost)
             self.vision.reset_background()
+        if not wizard and changed:
+            self._adapted = True
         if wizard:
             self._autocal_wizard_until = 0.0
             self.autocal_result = res
@@ -879,9 +910,9 @@ class AutomationEngine:
             if res.notes:
                 self.autocal_status += " " + " ".join(res.notes)
         if changed:
-            self._event("autocal", ("Auto-calibrated " if wizard else "Adapted to new rod/skin: ") + ", ".join(changed))
-            if self.on_profile_changed:
-                self.on_profile_changed("autocal" if wizard else "adapt",
+            self._event("autocal", ("Auto-calibrated " if wizard else "Adapted for this run: ") + ", ".join(changed))
+            if wizard and self.on_profile_changed:
+                self.on_profile_changed("autocal",
                                         {"old_bar": before["bar"], "old_fish": before["fish"],
                                          "new_bar": d.bar_color, "new_fish": d.fish_color})
 
@@ -913,7 +944,23 @@ class AutomationEngine:
             self.on_profile_changed("autocal", {"old_bar": before["bar"], "old_fish": before["fish"],
                                                 "new_bar": d.bar_color, "new_fish": d.fish_color})
 
+    def _self_heal(self) -> None:
+        """Shaking twice in a row with no reel found: the screen setup does not match this screen. Use the
+        built-in one for the rest of the run (once), instead of recovering until the error stop."""
+        if getattr(self, "_healed", True) or self.fsm.shake_stuck_streak < 2:
+            return
+        if not screen_setup_differs(self.profile):
+            self._healed = True
+            return
+        with self._lock:
+            repaired = reset_screen_setup(self.profile)
+            self.vision.reset_background()
+        self._healed = self._adapted = True  # undone at Stop like any live change; Calibrate saves a new setup
+        self._event("autocal", "The reel was not found twice - using the built-in screen setup for this run "
+                               f"({', '.join(repaired)}). Calibrate if it still does not reel.")
+
     def _on_fsm_error(self, frame: Frame, obs: Observation) -> None:
+        self._undo_live_adaptation()
         self.inputs.release_all()
         self._status = Status.MONITORING
         self._finish_session(f"error: {self._snap.last_error}")

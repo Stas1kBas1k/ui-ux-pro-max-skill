@@ -568,7 +568,12 @@ class MainWindow(QMainWindow):
 
     def start_automation(self) -> None:
         if self.calibration is not None:
-            return
+            if self.calibration.isVisible():
+                self.calibration.raise_()
+                self.calibration.activateWindow()
+                self.toast("Calibration open", "Save or close the region calibration first, then press Start.")
+                return
+            self.calibration = None  # closed without telling us: do not block Start forever
         if not self.ensure_acknowledged():
             return
         if self.ctx.engine.status == Status.PAUSED:

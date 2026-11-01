@@ -385,3 +385,35 @@ def apply_result(profile, res: AutoCalResult, regions: bool = True) -> list[str]
     if res.bar_color:
         d.bar_tolerance2 = 0  # the sampled colour is exact; the generic grey could match this skin's track
     return changed
+
+
+SETUP_REGIONS = ("reel", "progress", "cast")  # what calibration and the old live adaptation could move
+
+
+def screen_setup_differs(profile) -> bool:
+    from fischmacro.profiles.schema import DEFAULT_REGIONS, DetectionConfig
+    d, base = profile.detection, DetectionConfig()
+    return any(profile.regions.get(n) != DEFAULT_REGIONS[n] for n in SETUP_REGIONS) or \
+        (d.bar_color, d.fish_color, d.progress_color, d.cast_color) != \
+        (base.bar_color, base.fish_color, base.progress_color, base.cast_color)
+
+
+def reset_screen_setup(profile) -> list[str]:
+    """Back to the built-in regions and colours (works without calibration on most screens)."""
+    import copy
+    from fischmacro.profiles.schema import DEFAULT_REGIONS, DetectionConfig
+    out = []
+    shake = profile.regions.get("shake")
+    if shake is None or not shake.enabled or not shake.is_valid():
+        profile.regions["shake"] = copy.deepcopy(DEFAULT_REGIONS["shake"])
+        out.append("shake region")
+    for n in SETUP_REGIONS:
+        if profile.regions.get(n) != DEFAULT_REGIONS[n]:
+            profile.regions[n] = copy.deepcopy(DEFAULT_REGIONS[n])
+            out.append(f"{n} region")
+    d, base = profile.detection, DetectionConfig()
+    for attr in ("bar_color", "fish_color", "progress_color", "cast_color", "bar_tolerance2"):
+        if getattr(d, attr) != getattr(base, attr):
+            setattr(d, attr, getattr(base, attr))
+            out.append(attr.replace("_", " "))
+    return out

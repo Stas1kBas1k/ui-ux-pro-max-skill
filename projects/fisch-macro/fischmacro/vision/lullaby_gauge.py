@@ -31,8 +31,14 @@ class LullabyGauge:
         self.offset: tuple[float, float] | None = None  # where the moon really is, relative to the estimate
         self.reset()
 
+    # Brightness levels: the default gauge (player's recording) is near-black and near-white, read with fixed
+    # levels. A skin that recolours the gauge (e.g. Hollowed Harp) can be paler: then the levels are taken from
+    # the gauge's own darkest and lightest parts.
+    LO, HI = 55, 195
+
     def reset(self) -> None:
         self.radius: int | None = None
+        self.lo, self.hi = self.LO, self.HI
         self.ring_hist: deque[np.ndarray] = deque(maxlen=self.history)
         self.fan_hist: deque[np.ndarray] = deque(maxlen=self.history)
         self.misses = 0
@@ -42,16 +48,31 @@ class LullabyGauge:
         return pol[ANGLES:]  # angles 180..360 deg: left -> top -> right (image y points down)
 
     def _find_radius(self, gray: np.ndarray, rmin: int) -> int | None:
-        r, score = self._ring(gray, rmin)
-        return r if score >= 0.75 else None
+        r, score = self._ring(gray, rmin, self.lo, self.hi)
+        # with a skin's own levels anything two-toned scores higher, so the real ring must be very clean
+        # (recoloured recording: ~0.97; ring-like shapes in the test game: ~0.8)
+        need = 0.75 if (self.lo, self.hi) == (self.LO, self.HI) else 0.95
+        return r if score >= need else None
 
     @staticmethod
-    def _ring(gray: np.ndarray, rmin: int) -> tuple[int | None, float]:
+    def levels(gray: np.ndarray) -> tuple[int, int]:
+        """Dark / light levels for this gauge: the fixed ones when it has the default's contrast, otherwise
+        30% in from its own 5th and 95th percentile brightness."""
+        p5, p95 = (float(v) for v in np.percentile(gray, (5, 95)))
+        span = p95 - p5
+        lo, hi = int(p5 + 0.3 * span), int(p95 - 0.3 * span)
+        # lit sections are bright on any skin; a dark, dull area is not a recoloured gauge
+        if p5 <= LullabyGauge.LO and p95 >= LullabyGauge.HI or span < 50 or hi < 140:
+            return LullabyGauge.LO, LullabyGauge.HI
+        return lo, hi
+
+    @staticmethod
+    def _ring(gray: np.ndarray, rmin: int, lo: int = 55, hi: int = 195) -> tuple[int | None, float]:
         """The radius whose band is all very dark or very light (the ring), and how clean it is."""
         best, best_r = 0.0, None
         for r in range(rmin, gray.shape[1] - 4, 2):
             band = gray[:, r - 2:r + 3]
-            dark, light = float((band < 55).mean()), float((band > 195).mean())
+            dark, light = float((band < lo).mean()), float((band > hi).mean())
             share = dark + light
             if share > best and dark > 0.05 and light > 0.05:
                 best, best_r = share, r
@@ -62,6 +83,9 @@ class LullabyGauge:
         centre 25-50 px off bends the angles enough to click on the red part. Try positions around it and
         keep the one where the ring is sharpest (only exactly round about its true centre)."""
         g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+        x0, y0 = int(max(0, centre[0] - rmax)), int(max(0, centre[1] - rmax))
+        self.lo, self.hi = self.levels(g[y0:int(centre[1]) + 1, x0:int(centre[0] + rmax)])  # the half-moon area
+        lo, hi = self.lo, self.hi
         k = 2  # scored at half the radius samples and a quarter of the angles: ~10x cheaper, same peak
         rmin = int(0.07 * scale) // k
         n = ANGLES // 4
@@ -70,10 +94,10 @@ class LullabyGauge:
             if full:
                 pol = cv2.warpPolar(g, (rmax, 2 * ANGLES), (centre[0] + dx, centre[1] + dy), rmax,
                                     cv2.WARP_POLAR_LINEAR)[ANGLES:]
-                return self._ring(pol, rmin * k)[1]
+                return self._ring(pol, rmin * k, lo, hi)[1]
             pol = cv2.warpPolar(g, (rmax // k, 2 * n), (centre[0] + dx, centre[1] + dy), rmax,
                                 cv2.WARP_POLAR_LINEAR)[n:]
-            return self._ring(pol, max(3, rmin))[1]
+            return self._ring(pol, max(3, rmin), lo, hi)[1]
 
         best_d = (0.0, 0.0)
         # coarse (about +-50 px at 1080p), then finer, both cheap; then a last look at full resolution
@@ -86,8 +110,8 @@ class LullabyGauge:
                     sc = score(*d, full)
                     if sc > best + 1e-6:
                         best, best_d = sc, d
-        # the real gauge scores ~0.97; ring-like shapes elsewhere (e.g. the test game) reach ~0.78
-        if best >= 0.9:
+        # the real gauge scores ~0.97 (pale skin copy 0.99); ring-like shapes elsewhere reach ~0.78 (test game)
+        if best >= (0.9 if (lo, hi) == (self.LO, self.HI) else 0.95):
             self.offset = best_d
 
     def update(self, img: np.ndarray, centre: tuple[float, float], scale: float) -> TimingResult:
@@ -106,13 +130,14 @@ class LullabyGauge:
             centre = (centre[0] + self.offset[0], centre[1] + self.offset[1])
         gray = cv2.cvtColor(self._unwrap(img, centre, rmax), cv2.COLOR_BGR2GRAY)
         if self.radius is None:
+            self.lo, self.hi = self.levels(gray[:, : int(0.6 * gray.shape[1])])  # this gauge's own dark / light
             self.radius = self._find_radius(gray, int(0.07 * scale))
             if self.radius is None:
                 return res
         r = self.radius
         ring = gray[:, r - 3:r + 4].mean(axis=1)
         # still a gauge here? a ring is mostly very dark or very light
-        if float(((ring < 70) | (ring > 180)).mean()) < 0.6:
+        if float(((ring < self.lo + 15) | (ring > self.hi - 15)).mean()) < 0.6:
             self.misses += 1
             if self.misses > 10:
                 self.reset()
@@ -126,9 +151,9 @@ class LullabyGauge:
         if len(self.ring_hist) < 4:
             return res
         static = np.median(np.stack(self.ring_hist), axis=0)
-        lit = static > 150
+        lit = static > (150 if (self.lo, self.hi) == (self.LO, self.HI) else (self.lo + self.hi) // 2 + 10)
         still = np.median(np.stack(self.fan_hist), axis=0)
-        change = (np.abs(fan - still) > 40).mean(axis=1)   # per angle: share of the radius that changed
+        change = (np.abs(fan - still) > max(20, 0.29 * (self.hi - self.lo))).mean(axis=1)   # per angle: share of the radius that changed
         change = np.convolve(change, np.ones(11) / 11, mode="same")
         a = int(change.argmax())
         if change[a] < 0.25:

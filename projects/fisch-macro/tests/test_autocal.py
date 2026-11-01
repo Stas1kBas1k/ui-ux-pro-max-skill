@@ -107,6 +107,9 @@ def test_engine_adapts_to_new_skin_and_catches():
         while time.time() < end and eng.session.catches < 1:
             time.sleep(0.1)
         assert eng.session.catches >= 1
-        assert profile.detection.bar_color == "#9EE7FF" and saved
+        assert profile.detection.bar_color == "#9EE7FF"  # adapted for this run...
+        assert not saved  # ...but never written to the saved profile
+        eng.stop_automation("test")
+        assert profile.detection.bar_color == DetectionConfig().bar_color  # and undone at Stop
     finally:
         eng.shutdown()

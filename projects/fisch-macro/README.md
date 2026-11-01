@@ -44,6 +44,7 @@ still available under *Settings → General → Interface → Classic*.
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [What is verified and what is not](#what-is-verified-and-what-is-not)
+- [Special rods (custom UIs and minigames)](docs/SPECIAL_RODS.md)
 - [Privacy and safety](#privacy-and-safety)
 
 ## Features

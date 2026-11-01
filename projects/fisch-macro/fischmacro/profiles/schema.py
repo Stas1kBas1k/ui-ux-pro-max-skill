@@ -185,6 +185,9 @@ class ReelConfig:
     min_switch_ms: int = opt(0, "Shortest hold / release", "The mouse is held or released for at least this "
                              "long. Higher is calmer (fewer, longer clicks); 0 reacts every frame. Set by "
                              "Sensitivity.", min=0, max=150, suffix=" ms")
+    detect_inversion: bool = opt(True, "Notice inverted controls", "Some rods swap hold and release mid-catch "
+                                 "(Dreambreaker after 40%). The bar's response is watched and the input flipped "
+                                 "while it is inverted.")
     wall_rule: bool = opt(True, "Hold or release at the walls", "When the fish is at the left wall the mouse is "
                           "released, at the right wall it is held, whatever the bar is doing.")
     calm_zone: float = opt(0.2, "Calm zone", "Shortest hold / release only applies while the fish is within this "
@@ -201,8 +204,14 @@ class MinigameConfig:
     kind: str = opt("none", "Rod minigame", "Extra minigame of the equipped rod. 'lullaby' = timing clicks on the "
                     "metronome, 'stellarwave' = click the zodiac sign that is asked for, 'migu' = Shift on the "
                     "MiguRod timing bar, 'halibut' = no clicks, keep the fish in the bar while harpoons land "
-                    "('!' marks are ignored), 'targets' = click coloured targets (generic, experimental).",
-                    choices=["none", "lullaby", "stellarwave", "migu", "halibut", "targets"])
+                    "('!' marks are ignored), 'targets' = click coloured targets (generic, experimental), "
+                    "'falling' = move the bar under falling notes / presents / shells, 'special_key' = press the "
+                    "Special Action key during the catch (Dutchman's Rod).",
+                    choices=["none", "lullaby", "stellarwave", "migu", "halibut", "targets", "falling", "special_key"])
+    special_key: str = opt("", "Special Action key", "Your Special Action keybind in Fisch (Dutchman's Rod launches "
+                           "a stored fish with it). Empty = never pressed.", kind="key")
+    special_interval: float = opt(2.5, "Special Action every", "How often to press it during a catch.", min=0.5,
+                                  max=30.0, step=0.5, decimals=1, suffix=" s")
     keep_reeling: bool = opt(True, "Keep following the fish", "Track the fish with the catch bar while doing the rod "
                              "minigame. Turn off to only play the rod minigame.")
     action: str = opt("click", "Minigame input", "'click', or a key name if the game uses a key.", kind="key")
@@ -271,7 +280,7 @@ class EquipmentConfig:
 @dataclass
 class Profile:
     name: str = "Default"
-    revision: int = 3  # profile format; older files are upgraded on load (manager.upgrade)
+    revision: int = 4  # profile format; older files are upgraded on load (manager.upgrade)
     notes: str = ""
     regions: dict[str, Region] = field(default_factory=lambda: copy.deepcopy(DEFAULT_REGIONS))
     detection: DetectionConfig = field(default_factory=DetectionConfig)

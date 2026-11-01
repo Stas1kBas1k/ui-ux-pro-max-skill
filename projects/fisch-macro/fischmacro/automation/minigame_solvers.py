@@ -44,6 +44,7 @@ class MinigameSolver:
         self._last_now: float | None = None
         self.fired_segment: tuple[float, float] | None = None  # Lullaby: section already clicked this pass
         self.fired_dir = 0  # Lullaby: pendulum direction when it was clicked (a turn starts a new pass)
+        self.special_logged = False  # rods/special.py: logged once per catch
         # Stellarwave state machine: AIM -> VERIFY -> (target changed: hit) AIM / (no change: miss) AIM
         self.stellar_state = "AIM"
         self.stellar_lit: int | None = None
@@ -154,6 +155,12 @@ class MinigameSolver:
             self.started = True
             self.t_start = now
         behaviour = ROD_BEHAVIOURS.get(c.kind)
+        announced = self.fsm.__dict__.setdefault("announced", set())
+        if behaviour is not None and c.kind != "none" and c.kind not in announced:
+            announced.add(c.kind)  # once per run: the log shows which special rod handler ran
+            emit = getattr(self.fsm, "emit", None)
+            if emit is not None:
+                emit("special", f"Special rod handler active: {behaviour.label}")
         if behaviour is not None and behaviour.update is not None:
             behaviour.update(self, obs, now)
 

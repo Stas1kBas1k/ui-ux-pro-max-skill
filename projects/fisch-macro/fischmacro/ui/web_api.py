@@ -19,6 +19,7 @@ from fischmacro.profiles.library import BASIC_GROUP, DEFAULT_SKIN, RodLibrary, b
 from fischmacro.profiles.manager import ProfileError
 from fischmacro.profiles.schema import field_meta, to_dict
 from fischmacro.rods import behaviour_for
+from fischmacro.rods.catalog import mechanic
 from fischmacro.rods.config import definition, editor_schema, get_value, set_value
 from fischmacro.ui.rod_art import rod_hue
 
@@ -182,9 +183,14 @@ class WebApi:
                 continue
             info = self.lib.info(r)
             d = definition(r)
+            m = mechanic(r)
             out.append({"name": r, "kind": info.kind, "special": info.special,
-                        "behaviour": d.label if info.special else ("Tuned settings" if info.preset_note else
-                                                                    "Standard reel"),
+                        "support": m.support if m else "", "custom_ui": bool(m) and m.support in ("normal",
+                                                                                                "bonus-manual"),
+                        "behaviour": d.label if info.special else (
+                            "Needs a clip to automate" if m and m.support == "needs-footage" else
+                            "Custom UI - normal tracking" if m else
+                            "Tuned settings" if info.preset_note else "Standard reel"),
                         "configured": bool(info.profiles), "favourite": info.favourite,
                         "active": r == active_rod, "hue": rod_hue(r, info.kind), "img": self._img(r),
                         "tuned": bool(info.preset_note)})
@@ -262,7 +268,8 @@ class WebApi:
                 (d.equipment.skin or DEFAULT_SKIN), "skins": self.lib.skins_for(rod) if rod else [DEFAULT_SKIN],
                 "saved": self.saved is not None, "dirty": is_dirty(d, self.saved),
                 "in_use": d.name == self.ctx.profile.name, "schema": editor_schema(d),
-                "hue": rod_hue(rod, d.minigame.kind), "img": self._img(rod)}
+                "hue": rod_hue(rod, d.minigame.kind), "img": self._img(rod),
+                "mechanic": _mechanic_view(rod)}
 
     # ------------------------------------------------------------------ profiles
     def api_profiles(self) -> dict:
@@ -463,7 +470,12 @@ class WebApi:
                "inputs": recent, "minigame_log": list(eng.fsm.minigame.log)[-8:],
                "transitions": [{"ago": round(time.monotonic() - t, 1), "from": a.value, "to": b.value, "why": w}
                                for t, a, b, w in eng.fsm.history[-8:][::-1]],
-               "error": snap.last_error, "image": None}
+               "error": snap.last_error, "image": None,
+               "mechanics": [{"kind": k, "label": l} for k, l in self.TEST_MECHANICS],
+               "mechanic": eng.vision.test_kind or "", "mechanic_seen": ""}
+        if eng.vision.test_kind and snap.preview_obs is not None:
+            from fischmacro.diagnostics.replay import mechanic_summary
+            out["mechanic_seen"] = mechanic_summary(snap.preview_obs, eng.vision.test_kind)
         if image and snap.preview is not None and snap.preview_obs is not None:
             from fischmacro.diagnostics.replay import draw
             img = draw(snap.preview.image, eng.profile, snap.preview_obs, eng.fsm,
@@ -476,8 +488,22 @@ class WebApi:
                 out["image"] = "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode()
         return out
 
+    TEST_MECHANICS = [("", "Off"), ("lullaby", "Lullaby gauge (incl. skins)"), ("stellarwave", "Stellarwave signs"),
+                      ("falling", "Falling notes / presents / shells"), ("migu", "MiguRod slash marks")]
+
+    def api_diagnostics__mechanic(self, kind: str = "") -> dict:
+        """Manual test mode: watch one rod mechanic's detector on the live game without sending any input."""
+        if kind not in {k for k, _ in self.TEST_MECHANICS}:
+            raise ApiError(f"unknown mechanic {kind}")
+        eng = self.ctx.engine
+        eng.vision.test_kind = kind or None
+        if kind and eng.status == Status.STOPPED:
+            eng.start_vision()  # watching only: nothing is sent to the game
+        return {"mechanic": kind}
+
     def api_diagnostics__stop(self) -> dict:
         self.ctx.engine.set_preview(False)
+        self.ctx.engine.vision.test_kind = None
         return {"ok": True}
 
     # ------------------------------------------------------------------ licence / about
@@ -500,6 +526,22 @@ class WebApi:
         if w is None or not hasattr(w, "native_action"):
             return None
         return w.native_action(what, arg)
+
+
+SUPPORT_TEXT = {"verified": "Handled - checked on a real game recording",
+                "handled": "Handled - built from the wiki, checked in the test game",
+                "normal": "Normal tracking - nothing extra to press",
+                "bonus-manual": "Catches normally - the optional bonus is not automated yet",
+                "needs-footage": "Normal tracking only - send a clip of the minigame to automate it"}
+
+
+def _mechanic_view(rod: str) -> dict | None:
+    m = mechanic(rod)
+    if m is None:
+        return None
+    return {"game": m.mechanic, "player": m.player, "macro": m.macro, "support": m.support,
+            "support_text": SUPPORT_TEXT.get(m.support, m.support), "availability": m.availability,
+            "notes": list(m.notes)}
 
 
 def _hms(seconds: float) -> str:

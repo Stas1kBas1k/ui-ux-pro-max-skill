@@ -51,7 +51,8 @@ def recommended_kind(rod: str) -> tuple[str, str]:
 
 
 def is_basic(rod: str) -> bool:
-    return rod != BASIC_GROUP and recommended_kind(rod) == ("none", "")
+    from fischmacro.rods.catalog import CATALOG
+    return rod != BASIC_GROUP and rod not in CATALOG and recommended_kind(rod) == ("none", "")
 
 
 def basic_rods() -> list[str]:
@@ -94,7 +95,8 @@ class RodLibrary:
                 continue
             if sk and sk not in skins:
                 skins.append(sk)
-        for sk in self.cfg.skins.get(rod, []):
+        from fischmacro.rods.catalog import skins as known_skins
+        for sk in list(known_skins(rod)) + self.cfg.skins.get(rod, []):  # skins named on the wiki, then added
             if sk not in skins:
                 skins.append(sk)
         return skins
@@ -112,7 +114,8 @@ class RodLibrary:
         if category == "Basic rods":
             rods = [r for r in rods if is_basic(r)]
         elif category == "Special minigame":
-            rods = [r for r in rods if recommended_kind(r)[0] != "none" or recommended_kind(r)[1]]
+            from fischmacro.rods.catalog import CATALOG
+            rods = [r for r in rods if r in CATALOG or recommended_kind(r)[0] != "none" or recommended_kind(r)[1]]
         elif category == "Favourites":
             rods = [r for r in rods if r in self.cfg.favourites]
         elif category == "Recent":

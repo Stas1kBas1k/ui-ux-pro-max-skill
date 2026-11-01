@@ -342,3 +342,47 @@ connected to the same engine through one bridge (`fischmacro/ui/web_api.py`).
 | Group the rods with the default catch UI | One "Basic Rods" card for the 263 rods with the normal catch bar, sharing one setup. Special and tuned rods keep their own card. Search finds every rod by name. Picking a basic rod, or the rod reader seeing one on screen, uses the Basic Rods setup. | `test_basic_rods_share_one_setup` |
 
 Profiles saved by earlier versions are upgraded on load: same Sensitivity number with the new tracking, and Lullaby with no pause between hits. Values set by hand are kept.
+
+## 15. "Start does nothing", special rods, Hollowed Harp
+
+### Start does nothing (sometimes, until another rod is picked)
+**Cause found in the code:** auto-adapt runs when shaking ends and no reel is seen. It could move the saved reel,
+progress and cast regions and the colours to whatever it guessed, and the app then *saved* that into the rod's
+profile. One wrong guess left that rod either:
+* never finding the reel again (it casts and shakes, then nothing), or
+* failing Start's "profile valid" check (a region pushed past the screen edge), shown only as a short message.
+
+Picking another rod "fixed" it because that profile was untouched.
+
+**Fix:**
+* Live adaptation lasts for the current run only. It is undone at Stop and never saved; only Calibrate saves.
+* Start repairs a broken screen setup (back to the built-in one, which works without calibration) instead of
+  failing.
+* Shaking twice in a row with no reel found switches to the built-in setup for the rest of the run, and says so.
+* Profiles saved by earlier versions get their screen setup reset once (revision 4).
+* The dashboard shows why Start failed, if it does.
+* Start is no longer blocked silently by a calibration window that was closed without notice.
+
+Tests:
+* `test_start_repairs_a_broken_screen_setup_instead_of_doing_nothing`
+* `test_live_adaptation_never_outlives_the_run`
+* `test_reel_never_found_twice_switches_to_the_built_in_setup`
+* `test_old_profiles_get_their_screen_setup_repaired`
+* `test_start_repairs_broken_reel_and_shake_regions`
+
+### Special rods
+All 64 researched rods, their wiki mechanics and the testing table are in [SPECIAL_RODS.md](SPECIAL_RODS.md).
+
+New handlers:
+* **Falling objects** (Pinion's Aria, Santa's Miracle Rod, Starshell Rod). Found by movement, so any look works.
+* **Inverted controls** (Dreambreaker; works for any rod).
+* **Special Action key** (Dutchman's Rod).
+* **Lullaby skins:** the gauge is read from its own brightness, so recoloured skins such as Hollowed Harp work.
+
+Other changes:
+* A manual test mode per mechanic: Settings -> Diagnostics. Nothing is sent to the game.
+* Logging of which special handler ran.
+* The rod database shows every researched rod's mechanic and how well it is checked.
+* Rods whose minigame input the wiki does not describe are marked "needs footage" instead of guessed:
+  Tranquility (4-lane rhythm), Jinglestar bell, Noiseform zones, Black Fairy, Cerebra, Silly Fun Happy,
+  Remembrance.

@@ -103,8 +103,11 @@ class FishingStateMachine:
         self._emit_cb = emit or (lambda kind, msg, **data: None)
         self.sleep = sleep
         self.min_switch_interval = min_switch_interval
+        self.shake_stuck_streak = 0  # shakes in a row that never led to a reel (the engine self-heals at 2)
         self.modules = ModuleHost(profile.modules)
         self.reel = ReelController(profile.reel)
+        self.reel.on_inverted = lambda inv: self.emit(
+            "special", "Inverted controls detected - input flipped" if inv else "Controls back to normal")
         self.minigame = MinigameSolver(profile.minigame, self)
         self.state = State.IDLE
         self.ctx = FsmContext()
@@ -131,6 +134,8 @@ class FishingStateMachine:
         self.running = True
         self.stop_requested = ""
         self.consecutive_recoveries = 0
+        self.shake_stuck_streak = 0
+        self.announced = set()  # special rod handlers already logged this run
         self.reconnect_attempts = 0
         self.input.enable()
         self.modules = ModuleHost(self.profile.modules)
@@ -161,6 +166,8 @@ class FishingStateMachine:
         self.time_in_state[old.value] = self.time_in_state.get(old.value, 0.0) + max(0.0, now - self.ctx.entered)
         self.state = new
         self.ctx = FsmContext(entered=now, reason=reason)
+        if new == State.REELING:
+            self.shake_stuck_streak = 0
         if new == State.RECOVERY:
             self.input.release_all()
             self.reel.release()
@@ -338,7 +345,8 @@ class FishingStateMachine:
             c.last_shake_seen = now
         stuck = self.profile.timing.stuck_seconds
         if cfg.mode == "click" and now - max(c.entered, c.last_shake_seen) >= stuck:
-            # shaking stopped and the reel never came: the game dropped the bite
+            # shaking stopped and the reel never came: the game dropped the bite (or the reel is not seen)
+            self.shake_stuck_streak += 1
             self._go(State.RECOVERY, now, "shake stuck")
             return
         if cfg.mode == "navigation":
@@ -406,6 +414,13 @@ class FishingStateMachine:
                 # MiguRod: slashes land on the "!" marks and cut the bar - step the bar aside if the fish allows
                 from fischmacro.vision.reel_edges import dodge_aim
                 aim = dodge_aim(ts.fish_x, ts.bar_left, ts.bar_right, list(obs.reel.marks))
+            elif mini.kind == "falling" and obs.drops:
+                # notes / presents / shells: put the bar under the next one when the fish stays inside
+                from fischmacro.vision.falling import catch_aim
+                aim = catch_aim(ts.fish_x, ts.bar_left, ts.bar_right, list(obs.drops))
+                if aim != ts.fish_x and now - getattr(self, "_drop_logged", -1e9) > 1.0:
+                    self._drop_logged = now
+                    self.minigame._note(now, "falling object: bar moves under it")
             hold = self.reel.update(aim, ts.bar_left, ts.bar_right, now,
                                     max(ts.confidence, cfg.min_confidence),
                                     max(self.min_switch_interval, cfg.min_switch_ms / 1000.0))

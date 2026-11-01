@@ -45,6 +45,7 @@ class Observation:
     match: mg.MatchResult = field(default_factory=mg.MatchResult)
     targets: mg.TargetsResult = field(default_factory=mg.TargetsResult)
     zodiac: object = None                 # Stellarwave: ZodiacObs (next sign and where it is on the strip)
+    drops: tuple = ()                     # falling objects to catch with the bar (vision/falling.py Drop)
     prompt_image: object = None           # crop around a rod event, for reading its key prompt (MiguRod)
     frozen_seconds: float = 0.0
     checked: tuple[str, ...] = ()
@@ -87,11 +88,14 @@ class VisionEngine:
         from fischmacro.vision.shake_verify import ShakeVerifier
         self.shake_verifier = ShakeVerifier()
         from fischmacro.vision.lullaby_gauge import LullabyGauge
+        from fischmacro.vision.falling import FallingObjects
         self.lullaby_gauge = LullabyGauge()
+        self.falling = FallingObjects()
         self.verify_shake = True  # read the word before a shake click (off in the simulator: no real text)
         # Lullaby: the old lit-colour reader is only for the test game. On the real game it clicked on the red
         # part when the gauge was not found, so there nothing is clicked until the gauge is found.
         self.lullaby_fallback = True
+        self.test_kind: str | None = None  # manual test mode: run this rod mechanic's detector whatever the profile
 
     def regions_for(self, state: str) -> tuple[str, ...]:
         return STATE_REGIONS.get(state, ALL_DETECTORS)
@@ -125,6 +129,9 @@ class VisionEngine:
         p = self.profile
         cfg = p.detection
         wanted = wanted or ALL_DETECTORS
+        kind = self.test_kind or p.minigame.kind
+        if self.test_kind:
+            wanted = tuple(dict.fromkeys(tuple(wanted) + ("reel", "mini", "reel_wide")))
         obs = Observation(timestamp=frame.timestamp, ok=True, client_size=frame.client_size,
                           screen_origin=frame.screen_origin,
                           window_found=frame.meta.get("window_found", True),
@@ -148,7 +155,10 @@ class VisionEngine:
                 self._capsule_reel(frame, obs, r, rw)
             else:
                 self._refine_fish(frame, obs, r)
-                if p.minigame.kind == "migu" and obs.reel.ui_present and crop is not None:
+                if kind == "falling" and obs.reel.ui_present:
+                    from fischmacro.vision.falling import FallingObjects
+                    obs.drops = tuple(self.falling.update(frame.crop(FallingObjects.band_region(r)), frame.timestamp))
+                if kind == "migu" and obs.reel.ui_present and crop is not None:
                     from fischmacro.vision.reel_edges import find_marks
                     rr = obs.reel
                     obs.reel.marks = tuple(find_marks(crop, rr.fish_x if rr.fish_found else None,
@@ -176,8 +186,8 @@ class VisionEngine:
                                                       ch, cfg.template_threshold, self.templates)
             checked.append("catch_popup")
         mcfg = p.minigame
-        if mcfg.kind != "none" and "mini" in wanted and (r := region("mini")):
-            if mcfg.kind == "migu":
+        if kind != "none" and "mini" in wanted and (r := region("mini")):
+            if kind == "migu":
                 # the counterattack bar sits above the reel; search a taller box and find the red bar in it
                 area = Region(r.x, max(0.0, r.y - 0.10), r.w, min(1.0, r.h + 0.14))
                 acrop = frame.crop(area)
@@ -186,10 +196,10 @@ class VisionEngine:
                 obs.timing = mg.detect_migu(acrop)
                 if obs.timing.present:
                     obs.prompt_image = acrop
-            elif mcfg.kind == "lullaby" and (rr := region("reel")) and \
+            elif kind == "lullaby" and (rr := region("reel")) and \
                     (g := self._lullaby_gauge(frame, rr)).present:
                 obs.timing = g
-            elif mcfg.kind == "lullaby" and self.lullaby_fallback:
+            elif kind == "lullaby" and self.lullaby_fallback:
                 mcrop = frame.crop(r)
                 obs.timing = mg.detect_timing(mcrop, mcfg.pointer_color, mcfg.pointer_tolerance,
                                               mcfg.lit_color, mcfg.lit_tolerance, mcfg.axis)
@@ -197,9 +207,9 @@ class VisionEngine:
                     auto = mg.detect_timing_auto(mcrop, mcfg.axis)
                     if auto.present:
                         obs.timing = auto
-            elif mcfg.kind == "stellarwave" and (rw := region("reel_wide")):
+            elif kind == "stellarwave" and (rw := region("reel_wide")):
                 obs.zodiac = self._zodiac(frame, rw)
-            elif mcfg.kind == "targets":
+            elif kind == "targets":
                 obs.targets = mg.detect_targets(frame, r, mcfg.target_color, mcfg.target_tolerance)
             checked.append("mini")
         if frame.full and cfg.disconnect_detection and (r := region("disconnect")):

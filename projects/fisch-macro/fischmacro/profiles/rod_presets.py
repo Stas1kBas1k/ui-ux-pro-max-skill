@@ -36,8 +36,20 @@ PRESETS: list[RodPreset] = [
               "Harpoons land on spots marked '!' and add progress while the fish is in the bar. Nothing is "
               "clicked; the '!' marks are kept from being mistaken for the fish."),
     RodPreset("Pinion's Aria", ("pinion",),
-              {"reel.mode": "precision", "reel.mpc_margin": 0.2},
-              "Very low control and resilience: precision tracking with a wider safety margin."),
+              {"reel.mode": "precision", "reel.mpc_margin": 0.2, "minigame.kind": "falling",
+               "minigame.keep_reeling": True},
+              "Notes fall across the bar: the bar moves under each one when the fish stays inside (a missed "
+              "note costs 10%). Very low control: precision tracking with a wider safety margin."),
+    RodPreset("Santa's Miracle Rod", ("santa s miracle", "santas miracle"),
+              {"minigame.kind": "falling", "minigame.keep_reeling": True},
+              "Presents fall across the bar: the bar moves under each one when the fish stays inside (+10%)."),
+    RodPreset("Starshell Rod", ("starshell",),
+              {"minigame.kind": "falling", "minigame.keep_reeling": True},
+              "Shells fall onto the bar every 4 s: the bar moves under each one when the fish stays inside."),
+    RodPreset("Dutchman's Rod", ("dutchman",),
+              {"minigame.kind": "special_key", "minigame.keep_reeling": True},
+              "Spectral Barrage: set your Special Action key and it is pressed during the catch to launch a "
+              "stored fish."),
     RodPreset("Migurod", ("migurod", "migu"),
               {"reel.mode": "precision", "reel.mpc_margin": 0.25, "minigame.kind": "migu",
                "minigame.keep_reeling": True},

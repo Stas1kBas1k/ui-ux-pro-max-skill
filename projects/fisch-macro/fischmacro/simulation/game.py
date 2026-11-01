@@ -59,6 +59,7 @@ class SimulatedFischGame:
         self.mini_action = "click"     # or a key name
         self.mini_period = 1.4         # lullaby pendulum period (s)
         self.result_seconds = 1.2     # the catch result screen; clicks then do not cast
+        self.invert_after: float | None = None  # progress after which hold/release are swapped (Dreambreaker)
         self.input_latency = 0.04      # a click lands this long after the frame it was decided on
         self._pending_clicks: list[float] = []
         self._segments: list[tuple[float, float]] = []
@@ -270,6 +271,8 @@ class SimulatedFischGame:
             self._marks, self._mark_next = [], self.t + 0.8
         elif self.rod_minigame == "migu":
             self._migu_at, self._migu_delay = None, self.rng.uniform(1.5, 4.0)
+        elif self.rod_minigame == "falling":
+            self._drops, self._drop_next = [], self.t + 1.0
 
     # ------------------------------------------------------------------ rod minigames
     def _new_segments(self) -> None:
@@ -309,6 +312,24 @@ class SimulatedFischGame:
             if self.bar_x <= self.fish_x <= self.bar_x + self.bar_w:
                 self.progress = min(1.0, self.progress + 0.01)
                 self.stats.mini_hits += 1
+
+    # Falling objects (Pinion's Aria notes, Santa's Miracle presents, Starshell shells): they drop from above onto
+    # the bar's row; caught when the bar is under them as they land (+3%), missed otherwise (-10%, as a missed
+    # Pinion's Aria note in the wiki).
+    def _falling_step(self, dt: float) -> None:
+        if self.t >= self._drop_next:
+            self._drops.append([self.rng.uniform(0.06, 0.94), 0.0, self.rng.uniform(0.8, 1.2)])
+            self._drop_next = self.t + self.rng.uniform(1.2, 2.2)
+        for d in list(self._drops):
+            d[1] += dt / d[2]  # d[2] = seconds to fall
+            if d[1] >= 1.0:
+                self._drops.remove(d)
+                if self.bar_x <= d[0] <= self.bar_x + self.bar_w:
+                    self.stats.mini_hits += 1
+                    self.progress = min(1.0, self.progress + 0.03)
+                else:
+                    self.stats.mini_misses += 1
+                    self.progress = max(0.0, self.progress - 0.10)
 
     # MiguRod: a timing bar shows above the control bar; Shift with the pointer in the middle gives progress
     def _migu_step(self) -> None:
@@ -376,6 +397,15 @@ class SimulatedFischGame:
 
     def _render_mini(self, img: np.ndarray) -> None:
         kind = self.rod_minigame
+        if kind == "falling":
+            x, y, rw, rh = self._rect("reel")
+            band = int(4 * rh)
+            for dx, dy, _ in self._drops:
+                cx, cy = x + int(dx * rw), y - band + int(dy * band)
+                r = max(3, rh // 3)
+                pts = np.array([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], np.int32)
+                cv2.fillConvexPoly(img, pts, (235, 215, 255))  # a note / present / shell
+            return
         if kind == "lullaby":
             x, y, w, h = self._rect("mini")
             ty0, ty1 = y + int(h * 0.35), y + int(h * 0.65)
@@ -483,13 +513,18 @@ class SimulatedFischGame:
                     self._halibut_step()
                 elif self.state == "reel" and self.rod_minigame == "migu":
                     self._migu_step()
+                elif self.state == "reel" and self.rod_minigame == "falling":
+                    self._falling_step(dt)
             elif s == "result" and self.t - self.state_t > self.result_seconds:
                 self._set("idle")
             elif s == "reconnecting" and self.t - self.state_t > 2.0:
                 self._set("idle")
 
     def _reel_step(self, dt: float) -> None:
-        accel = self.accel_hold if self.mouse_held else -self.accel_release
+        held = self.mouse_held
+        if self.invert_after is not None and self.progress >= self.invert_after:
+            held = not held  # Dreambreaker: after 40% progress the minigame's input is inverted (wiki)
+        accel = self.accel_hold if held else -self.accel_release
         self.bar_v += accel * dt
         self.bar_v *= max(0.0, 1.0 - 1.2 * dt)
         self.bar_x += self.bar_v * dt

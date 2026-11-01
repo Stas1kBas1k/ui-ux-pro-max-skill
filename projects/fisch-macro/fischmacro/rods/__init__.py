@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from fischmacro.rods import halibut, lullaby, migu, stellarwave, targets
+from fischmacro.rods import halibut, lullaby, migu, special, stellarwave, targets
 
 
 @dataclass(frozen=True)
@@ -50,6 +50,14 @@ ROD_BEHAVIOURS: dict[str, RodBehaviour] = {b.kind: b for b in (
     RodBehaviour("halibut", "Halibut Harpoon", "Nothing to press; ignores the '!' icon so the bar is not pulled away.",
                  filter_obs=halibut.filter_obs, settings=("keep_reeling",), advanced=("halibut_gun_key",),
                  events=("'!' harpoon mark",), status="real screenshot"),
+    RodBehaviour("falling", "Catch falling objects", "Notes, presents or shells fall onto the bar: it moves under "
+                 "the next one when the fish stays inside, so both are caught.", special.falling_update,
+                 settings=("keep_reeling",), events=("falling object",), status="simulated",
+                 notes=["Found by movement, so any colour or skin works. Checked in the test game only."]),
+    RodBehaviour("special_key", "Special Action key", "Presses your Special Action key during the catch (Dutchman's "
+                 "Rod: launches a stored fish, keeping the fish away from the edges).", special.special_key_update,
+                 settings=("special_key", "special_interval", "keep_reeling"), events=("catch in progress",),
+                 status="unconfirmed", notes=["Set the key to your Special Action keybind first."]),
     RodBehaviour("targets", "Target clicker", "Clicks coloured targets (generic, experimental).",
                  targets.update, advanced=("target_color", "target_tolerance", "target_interval"),
                  events=("coloured target",), status="simulated"),

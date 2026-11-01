@@ -94,10 +94,11 @@ def test_basic_rods_share_one_setup(api, ctx):
     r = api.call("rods")
     group = r["rods"][0]
     assert group["group"] and group["name"] == "Basic Rods" and group["count"] > 200
-    assert r["count"] == r["total"] and "Masterline Rod" not in [x["name"] for x in r["rods"]]
-    assert any(x["name"] == "Lullaby" for x in r["rods"])  # special rods keep their own card
-    assert [x["name"] for x in api.call("rods", {"query": "masterline"})["rods"]] == ["Masterline Rod"]
-    d = api.call("rod.open", {"rod": "Masterline Rod"})
+    names = [x["name"] for x in r["rods"]]
+    assert r["count"] == r["total"] and "Carbon Rod" not in names
+    assert "Lullaby" in names and "Masterline Rod" in names  # special / custom-UI rods keep their own card
+    assert [x["name"] for x in api.call("rods", {"query": "carbon"})["rods"]] == ["Carbon Rod"]
+    d = api.call("rod.open", {"rod": "Carbon Rod"})
     assert d["rod"] == "Basic Rods" and d["group"]
     api.call("draft.save", {"use": True})
     assert ctx.profile.equipment.rod_name == "Basic Rods"
@@ -273,3 +274,23 @@ def test_tool_windows_survive_the_event_loop(app, ctx):
         win.poll()
     finally:
         win.close()
+
+
+def test_special_rods_in_the_library_and_the_mechanic_test(api, ctx):
+    rods = {x["name"]: x for x in api.call("rods")["rods"]}
+    assert rods["Masterline Rod"]["support"] == "normal" and rods["Masterline Rod"]["custom_ui"]
+    assert rods["Tranquility Rod"]["support"] == "needs-footage"
+    d = api.call("rod.open", {"rod": "Lullaby"})
+    assert "Hollowed Harp" in d["skins"] and d["mechanic"]["support"] == "verified"
+    assert "pendulum" in d["mechanic"]["game"]
+    d = api.call("rod.open", {"rod": "Pinion's Aria"})
+    assert d["schema"]["behaviour"] == "Catch falling objects"
+    api.call("diagnostics.mechanic", {"kind": "falling"})
+    assert ctx.engine.vision.test_kind == "falling"
+    diag = api.call("diagnostics", {"image": False})
+    assert diag["mechanic"] == "falling" and any(m["kind"] == "lullaby" for m in diag["mechanics"])
+    api.call("diagnostics.stop")
+    assert ctx.engine.vision.test_kind is None
+    from fischmacro.ui.web_api import ApiError
+    with pytest.raises(ApiError):
+        api.call("diagnostics.mechanic", {"kind": "nonsense"})

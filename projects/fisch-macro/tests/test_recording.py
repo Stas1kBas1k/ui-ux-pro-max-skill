@@ -5,6 +5,7 @@ Ground truth was measured by hand on these frames (pixels at 1920x1080). Frames:
 from pathlib import Path
 
 import cv2
+import numpy as np
 import pytest
 
 from fischmacro.diagnostics.replay import profile_for
@@ -152,6 +153,28 @@ def test_lullaby_gauge_found_when_the_region_is_off(off):
     seen = []
     for img in _lullaby_frames():
         r = g.update(img, (960 + off[0], 902 + off[1]), H)
+        if r.present:
+            seen.append((r.pointer, r.segments))
+    assert len(seen) > 35
+    segs = seen[len(seen) // 2][1]
+    assert len(segs) == 1 and segs[0][0] < 0.05 and 0.47 < segs[0][1] < 0.56
+    assert min(p for p, _ in seen) < 0.15 and max(p for p, _ in seen) > 0.8
+
+
+@pytest.mark.parametrize("look", ["pale", "tinted"])
+def test_lullaby_gauge_read_on_recoloured_skins(look):
+    """Skins can recolour the half-moon (Hollowed Harp, Seastrum...): the recording made pale (brightness squeezed
+    into 80-182, where the default's fixed dark/light levels see nothing) or pale and tinted still reads the same
+    lit part and the full swing."""
+    from fischmacro.vision.lullaby_gauge import LullabyGauge
+    g = LullabyGauge()
+    seen = []
+    for img in _lullaby_frames():
+        im = (img.astype(np.float32) * (0.4 if look == "pale" else 0.45) + (80 if look == "pale" else 70))
+        im = im.astype(np.uint8)
+        if look == "tinted":
+            im = cv2.add(im, np.full_like(im, (40, 0, 25)))
+        r = g.update(im, (960, 902), H)
         if r.present:
             seen.append((r.pointer, r.segments))
     assert len(seen) > 35

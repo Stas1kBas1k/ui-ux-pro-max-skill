@@ -120,6 +120,11 @@ def draw(img: np.ndarray, p: Profile, obs, fsm, sent: list[str], t: float) -> np
         cv2.line(out, (px(rr.fish_x), y - 30), (px(rr.fish_x), y + h + 30), (0, 0, 255), 3)
     for m in rr.marks:
         cv2.line(out, (px(m), y - 14), (px(m), y), (0, 140, 255), 4)
+    for dr in getattr(obs, "drops", ()):  # falling objects: where they are, and when they land
+        cy = int(y - 4 * h + dr.y * 4 * h)
+        cv2.circle(out, (px(dr.x), cy), max(6, h // 2), (255, 255, 0), 2)
+        if dr.eta is not None:
+            cv2.putText(out, f"{dr.eta:.1f}s", (px(dr.x) + 10, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
     z = obs.zodiac
     if z is not None and z.found:
         if z.next_sign:
@@ -127,7 +132,7 @@ def draw(img: np.ndarray, p: Profile, obs, fsm, sent: list[str], t: float) -> np
             cv2.circle(out, c, 34, (0, 255, 255) if z.confident else (0, 120, 120), 3)
         cv2.putText(out, f"stars lit {z.lit} next {z.next_sign} ({z.score:.2f}/{z.margin:.2f})", (20, H - 90),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-    if p.minigame.kind == "lullaby" and obs.timing.present:
+    if obs.timing.present and (p.minigame.kind == "lullaby" or obs.timing.source == "gauge"):
         cx, cy = int((r.x + r.w / 2) * W), int(r.y * H)
         rad = int(0.15 * H)
         for a, b in obs.timing.segments:
@@ -158,3 +163,24 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def mechanic_summary(obs, kind: str) -> str:
+    """One line for the manual test mode: what this mechanic's detector sees right now."""
+    if kind == "lullaby":
+        t = obs.timing
+        if not t.present:
+            return "Gauge not found - start a Lullaby catch"
+        parts = ", ".join(f"{a:.2f}-{b:.2f}" for a, b in t.segments) or "none"
+        return f"Gauge found: pendulum {t.pointer:.2f}, lit parts {parts}"
+    if kind == "stellarwave":
+        z = obs.zodiac
+        if z is None or not z.found:
+            return "Zodiac row not found"
+        return f"{z.lit} stars lit, next sign {z.next_sign or '?'}" + (" (sure)" if z.confident else " (unsure)")
+    if kind == "falling":
+        d = [x for x in getattr(obs, "drops", ()) if x.eta is not None]
+        return f"{len(d)} falling object(s)" + (f", next lands in {min(x.eta for x in d):.1f} s" if d else "")
+    if kind == "migu":
+        return f"{len(obs.reel.marks)} slash mark(s) on the track" + (", counter bar seen" if obs.timing.present else "")
+    return ""

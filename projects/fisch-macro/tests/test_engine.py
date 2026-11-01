@@ -139,3 +139,65 @@ def test_focus_loss_pauses_inputs():
         assert "focused" in eng.snapshot().message
     finally:
         eng.shutdown()
+
+
+def _broken(p):
+    """What an older version's live adaptation could leave behind: a reel region moved off screen and a
+    sampled colour that matches nothing."""
+    from fischmacro.profiles.schema import Region
+    p.regions["reel"] = Region(0.85, 0.2, 0.4, 0.05)
+    p.detection.bar_color = "#123456"
+    return p
+
+
+def test_start_repairs_a_broken_screen_setup_instead_of_doing_nothing():
+    from fischmacro.vision.autocal import screen_setup_differs
+    eng = AutomationEngine(sim_settings(), _broken(Profile()))
+    try:
+        assert eng.start_automation(), eng.start_report  # used to fail at "profile valid": Start did nothing
+        assert not screen_setup_differs(eng.profile)
+        assert wait_for(lambda: eng.session.catches >= 1, timeout=40)
+    finally:
+        eng.shutdown()
+
+
+def test_live_adaptation_never_outlives_the_run():
+    from fischmacro.profiles.schema import Region
+    eng = AutomationEngine(sim_settings(), Profile())
+    try:
+        assert eng.start_automation()
+        before = (eng.profile.detection.bar_color, eng.profile.regions["reel"])
+        eng.profile.detection.bar_color = "#123456"  # as live adaptation would
+        eng.profile.regions["reel"] = Region(0.3, 0.5, 0.4, 0.05)
+        eng._adapted = True
+        eng.stop_automation("test")
+        assert (eng.profile.detection.bar_color, eng.profile.regions["reel"]) == before
+    finally:
+        eng.shutdown()
+
+
+def test_reel_never_found_twice_switches_to_the_built_in_setup():
+    from fischmacro.vision.autocal import screen_setup_differs
+    p = Profile()
+    p.detection.bar_color = "#123456"
+    eng = AutomationEngine(sim_settings(), p)
+    try:
+        assert eng.start_automation()
+        eng.fsm.shake_stuck_streak = 2
+        eng._self_heal()
+        assert not screen_setup_differs(eng.profile)
+        assert any("built-in screen setup" in m for _, _, m in eng.drain_events())
+        eng.stop_automation("test")
+        assert eng.profile.detection.bar_color == "#123456"  # the saved setup is not overwritten
+    finally:
+        eng.shutdown()
+
+
+def test_old_profiles_get_their_screen_setup_repaired():
+    from fischmacro.profiles.manager import upgrade
+    from fischmacro.profiles.schema import from_dict, to_dict
+    from fischmacro.vision.autocal import screen_setup_differs
+    raw = to_dict(_broken(Profile()))
+    raw["revision"] = 3
+    p = upgrade(from_dict(Profile, raw), raw)
+    assert not screen_setup_differs(p) and p.revision == 4

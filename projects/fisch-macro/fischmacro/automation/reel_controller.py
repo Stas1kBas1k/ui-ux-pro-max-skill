@@ -77,6 +77,47 @@ class HoverEstimator:
         self.value = estimate if self.value is None else 0.9 * self.value + 0.1 * estimate
 
 
+class InputSense:
+    """Which way holding pushes the bar, from the last fraction of a second. Normally holding pushes it right;
+    some rods invert the input mid-catch (Dreambreaker after 40% progress, per the wiki). The slope of bar
+    acceleration on hold is fitted over a short forgetting window; a clear negative slope = inverted."""
+
+    def __init__(self, forget: float = 0.93, threshold: float = 1.5, persist: int = 5):
+        # normal play in the test game: slope median 4.6, lowest 1st percentile 1.6, single dips to -0.8;
+        # so "inverted" needs a clearly negative slope that lasts a few frames
+        self.forget, self.threshold, self.persist = forget, threshold, persist
+        self.reset()
+
+    def reset(self) -> None:
+        self.n = self.sh = self.shh = self.sa = self.sah = 0.0
+        self.inverted = False
+        self.slope = 0.0
+        self._streak = 0
+
+    def add(self, hold: float, accel: float, act: bool = True) -> bool:
+        f = self.forget
+        self.n = f * self.n + 1.0
+        self.sh = f * self.sh + hold
+        self.shh = f * self.shh + hold * hold
+        self.sa = f * self.sa + accel
+        self.sah = f * self.sah + accel * hold
+        if self.n < 8:
+            return False
+        mh = self.sh / self.n
+        var = self.shh / self.n - mh * mh
+        if var < 0.06:  # need both held and released moments in the window
+            return False
+        self.slope = (self.sah / self.n - mh * self.sa / self.n) / var
+        if not act:
+            return False
+        contrary = self.slope < -self.threshold if not self.inverted else self.slope > self.threshold
+        self._streak = self._streak + 1 if contrary else 0
+        if self._streak >= self.persist:
+            self.inverted, self._streak = not self.inverted, 0
+            return True
+        return False
+
+
 class PlantModel:
     """Online model of the catch bar: ``accel = alpha * hold + beta + gamma * velocity``.
 
@@ -117,6 +158,8 @@ class ReelController:
         self.cfg = cfg
         self.hover = HoverEstimator()  # kept across minigames: the rod does not change mid-session
         self.plant = PlantModel()
+        self.sense = InputSense()
+        self.on_inverted = None  # callback(bool) when the input direction flips (logged by the FSM)
         self.reset()
 
     def reset(self) -> None:
@@ -131,6 +174,7 @@ class ReelController:
         self._last_switch = -1e9
         self._raw_bv: float | None = None
         self._prev_hold = False  # decision before the last one
+        self.sense.reset()  # every catch starts with normal input
         self.debug = ReelDebug()
 
     def update(self, fish_x: float, bar_left: float, bar_right: float, now: float,
@@ -156,10 +200,15 @@ class ReelController:
             if self._raw_bv is not None and bar_left > 0.03 and bar_right < 0.97 and not near_edge:
                 accel = (raw_bv - self._raw_bv) / dt
                 if abs(accel) < 25.0:
-                    self.hover.add(1.0 if self._hold else 0.0, accel)
+                    sent = (float(self._hold) + float(self._prev_hold)) / 2
+                    if self.sense.add(sent, accel, getattr(c, "detect_inversion", True)) and self.on_inverted:
+                        self.on_inverted(self.sense.inverted)
+                    inv = self.sense.inverted
+                    phys = (not self._hold) if inv else self._hold  # what the bar actually felt
+                    self.hover.add(1.0 if phys else 0.0, accel)
                     # The two velocity samples straddle the last two decisions, so the input is their
                     # average; the midpoint velocity keeps noise uncorrelated with the acceleration.
-                    h_mix = (float(self._hold) + float(self._prev_hold)) / 2
+                    h_mix = (1.0 - sent) if inv else sent
                     self.plant.add(h_mix, (raw_bv + self._raw_bv) / 2, accel)
             self._raw_bv = raw_bv
         self._t, self._fish, self._bar = now, fish_x, bar_c
@@ -201,6 +250,9 @@ class ReelController:
         elif duty <= 0.001:
             want = False
 
+        if self.sense.inverted:
+            want = not want  # inverted input: release to push right, hold to let it fall
+            reason += "+inverted"
         if want and self._hold and self._hold_since is not None and now - self._hold_since >= c.max_hold_seconds:
             want, reason = False, "max-hold"
         # Calm clicking only while the fish is safely inside the bar; near an edge, react at once.
