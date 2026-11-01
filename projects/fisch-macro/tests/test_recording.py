@@ -143,6 +143,23 @@ def test_lullaby_gauge_lit_part_and_pendulum():
     assert min(pointers) < 0.15 and max(pointers) > 0.8, "a full swing is followed"
 
 
+@pytest.mark.parametrize("off", [(50, 0), (-40, 30), (30, -25)])
+def test_lullaby_gauge_found_when_the_region_is_off(off):
+    """The gauge centre comes from the saved reel region, which can be off on another screen. Off by
+    25-50 px the angles bent enough to click on the red part; now the real centre is searched for."""
+    from fischmacro.vision.lullaby_gauge import LullabyGauge
+    g = LullabyGauge()
+    seen = []
+    for img in _lullaby_frames():
+        r = g.update(img, (960 + off[0], 902 + off[1]), H)
+        if r.present:
+            seen.append((r.pointer, r.segments))
+    assert len(seen) > 35
+    segs = seen[len(seen) // 2][1]
+    assert len(segs) == 1 and segs[0][0] < 0.05 and 0.47 < segs[0][1] < 0.56
+    assert min(p for p, _ in seen) < 0.15 and max(p for p, _ in seen) > 0.8
+
+
 def test_lullaby_clicks_only_inside_the_lit_part():
     from fischmacro.diagnostics.replay import replay
     import tempfile

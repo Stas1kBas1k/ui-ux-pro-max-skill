@@ -35,8 +35,8 @@ ROD_BEHAVIOURS: dict[str, RodBehaviour] = {b.kind: b for b in (
                  status="real screenshot"),
     RodBehaviour("lullaby", "Lullaby", "Clicks only while the pendulum is over the lit part of the gauge (a click on "
                  "the red part is a miss). It does not steer the fish.",
-                 lullaby.update, settings=("lullaby_mode", "keep_reeling"),
-                 advanced=("lead_ms", "min_interval", "mode_key", "pointer_tolerance", "lit_tolerance"),
+                 lullaby.update, settings=("lead_ms", "keep_reeling"),
+                 advanced=("lullaby_mode", "min_interval", "mode_key", "pointer_tolerance", "lit_tolerance"),
                  events=("lit section under the pendulum",), status="real recording",
                  notes=["The click is aimed a little ahead of the pendulum (Lead, in Advanced)."]),
     RodBehaviour("stellarwave", "Stellarwave sign picker", "Taps the zodiac signs in order (Aries to Pisces) on the "

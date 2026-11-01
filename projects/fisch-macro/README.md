@@ -13,7 +13,7 @@ feedback controller.
 | **Profiles** (configuration editor, Save / Revert / Recommended) | **Diagnostics** (live view with detections and inputs) |
 | ![Profiles](docs/screenshots/ui-profiles.png) | ![Diagnostics](docs/screenshots/ui-diagnostics.png) |
 
-The tool pages below open in their own window, from *Settings → Advanced tools*. The previous interface is
+The tool pages below (Add-ons, Hunts, AI assistant, ...) open inside the main window, with a Back button. The previous interface is
 still available under *Settings → General → Interface → Classic*.
 
 | **Fishing** (live status, every rod or Automatic, Lullaby mode) | **Add-ons** (Sovereign, Totem, Appraise, Potion, Astral) |

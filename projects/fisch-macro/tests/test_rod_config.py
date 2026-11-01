@@ -4,7 +4,8 @@ import pytest
 from fischmacro import licensing
 from fischmacro.profiles.rod_presets import apply_preset, find_preset
 from fischmacro.profiles.schema import Profile
-from fischmacro.rods.config import SENSITIVITY, definition, editor_schema, get_value, set_value
+from fischmacro.rods.config import (SENSITIVITY, definition, editor_schema, get_value, sensitivity, set_sensitivity,
+                                    set_value)
 
 
 def rod_profile(name):
@@ -29,12 +30,32 @@ def test_editor_shows_only_what_the_rod_uses():
     normal = editor_schema(rod_profile("Carbon Rod"))
     titles = [s["title"] for s in normal["sections"]]
     assert titles[0] == "Fish tracking" and not any("minigame" in t for t in titles)
+    basic = [f["path"] for f in normal["basic"]]
+    assert basic == [SENSITIVITY, "casting.mode", "timing.post_catch_delay", "equipment.rod_slot_key"]
+    every = [f["path"] for s in normal["sections"] for f in s["fields"]]
+    assert "reel.smoothing" in every and not set(basic) & set(every)  # each setting appears once
     lull = editor_schema(rod_profile("Lullaby"))
-    first = lull["sections"][0]
-    assert "Lullaby" in first["title"] and any(f["path"] == "minigame.lullaby_mode" and f["simple"]
-                                               for f in first["fields"])
-    simple = [f["path"] for s in normal["sections"] for f in s["fields"] if f["simple"]]
-    assert SENSITIVITY in simple and "reel.mode" in simple and "reel.smoothing" not in simple
+    assert [f["path"] for f in lull["basic"]][:2] == ["minigame.lead_ms", "minigame.keep_reeling"]
+    assert "Lullaby" in lull["sections"][0]["title"]
+    assert all(f["label"] and f["help"] for f in normal["basic"])
+
+
+def test_sensitivity_is_calm_by_default_and_upgrades_old_profiles():
+    from fischmacro.profiles.manager import upgrade
+    from fischmacro.profiles.schema import Profile, from_dict, to_dict
+    fresh = Profile()
+    assert sensitivity(fresh) == 5 and fresh.reel.min_switch_ms == 50
+    set_sensitivity(fresh, 10)
+    assert fresh.reel.kp == 3.0 and fresh.reel.min_switch_ms == 0  # 10 = the old default
+    old = to_dict(Profile())
+    old.pop("revision")
+    old["reel"].update(kp=3.0, kd=0.45, feedforward=0.25, end_grace=0.6)
+    old["timing"]["post_catch_delay"], old["casting"]["pre_cast_delay"] = 1.6, 0.35
+    p = upgrade(from_dict(Profile, old), old)
+    assert sensitivity(p) == 5 and p.reel.kp == 2.1 and p.reel.min_switch_ms == 50
+    assert (p.timing.post_catch_delay, p.casting.pre_cast_delay, p.reel.end_grace) == (0.5, 0.15, 0.35)
+    old["timing"]["post_catch_delay"] = 3.0  # set by hand: kept
+    assert upgrade(from_dict(Profile, old), old).timing.post_catch_delay == 3.0
 
 
 def test_values_are_converted_and_kept_in_limits():
@@ -44,7 +65,7 @@ def test_values_are_converted_and_kept_in_limits():
         set_value(p, "reel.mode", "turbo")
     assert set_value(p, "timing.bite_timeout", "9999") == 600.0  # clamped to its maximum
     assert set_value(p, "shake.persistence_frames", "3.4") == 3
-    assert set_value(p, SENSITIVITY, 8) == 8 and p.reel.kp > 3.0
+    assert set_value(p, SENSITIVITY, 8) == 8 and p.reel.kp > 2.1 and p.reel.min_switch_ms == 20
     assert get_value(p, SENSITIVITY) == 8
     with pytest.raises(KeyError):
         set_value(p, "reel.not_a_setting", 1)

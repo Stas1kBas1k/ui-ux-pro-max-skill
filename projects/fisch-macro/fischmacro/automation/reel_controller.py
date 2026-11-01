@@ -201,7 +201,9 @@ class ReelController:
 
         if want and self._hold and self._hold_since is not None and now - self._hold_since >= c.max_hold_seconds:
             want, reason = False, "max-hold"
-        if want != self._hold and now - self._last_switch < min_switch_interval:
+        # Calm clicking only while the fish is safely inside the bar; near an edge, react at once.
+        calm = abs(e_n) < c.calm_zone
+        if want != self._hold and calm and now - self._last_switch < min_switch_interval:
             want = self._hold
         if want != self._hold:
             self._last_switch = now

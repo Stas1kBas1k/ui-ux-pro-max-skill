@@ -67,6 +67,7 @@ function renderNav() {
 }
 
 function go(id) {
+  if (bridge) bridge.call("panel.close", "{}", () => {});  // leaving a tool page that was open over the content
   if (views[route] && views[route].leave) views[route].leave();
   route = id;
   renderNav();
@@ -104,7 +105,7 @@ function sideStatus() {
   b.className = `btn btn-block ${S.running ? "btn-danger" : "btn-primary"}`;
   b.innerHTML = S.running ? `${icon("stop", 16)} Stop` : `${icon("play", 16)} Start fishing`;
 }
-$("#side-start").onclick = toggleRun;
+$("#side-start").onclick = () => { bridge.call("panel.close", "{}", () => {}); toggleRun(); };
 
 async function refreshState() {
   S = await api("state");
@@ -120,22 +121,24 @@ function fieldHtml(f) {
     ctl = `<label class="switch"><input type="checkbox" id="${id}" data-path="${f.path}" ${f.value ? "checked" : ""} aria-label="${esc(f.label)}"><span></span></label>`;
   } else if (f.kind === "choice" && f.choices && f.choices.length <= 3) {
     ctl = `<div class="seg" role="group" aria-label="${esc(f.label)}">${f.choices.map((c) =>
-      `<button type="button" class="${c === f.value ? "on" : ""}" data-path="${f.path}" data-value="${esc(c)}">${esc(cap(c))}</button>`).join("")}</div>`;
+      `<button type="button" class="${c === f.value ? "on" : ""}" data-path="${f.path}" data-value="${esc(c)}">${esc(choiceLabel(f, c))}</button>`).join("")}</div>`;
   } else if (f.kind === "choice" && f.choices) {
     ctl = `<select class="select" id="${id}" data-path="${f.path}" aria-label="${esc(f.label)}">${f.choices.map((c) =>
-      `<option ${c === f.value ? "selected" : ""} value="${esc(c)}">${esc(cap(c))}</option>`).join("")}</select>`;
+      `<option ${c === f.value ? "selected" : ""} value="${esc(c)}">${esc(choiceLabel(f, c))}</option>`).join("")}</select>`;
   } else if (f.kind === "slider") {
     const p = ((f.value - f.min) / (f.max - f.min)) * 100;
-    ctl = `<input type="range" id="${id}" min="${f.min}" max="${f.max}" step="1" value="${f.value}" data-path="${f.path}" style="--p:${p}%" aria-label="${esc(f.label)}"><span class="val">${f.value}</span>`;
+    const [lo, hi] = f.ends || ["", ""];
+    ctl = `<span class="val">${f.value}</span>${lo ? `<span class="faint small">${esc(lo)}</span>` : ""}<input type="range" id="${id}" min="${f.min}" max="${f.max}" step="1" value="${f.value}" data-path="${f.path}" style="--p:${p}%" aria-label="${esc(f.label)}">${hi ? `<span class="faint small">${esc(hi)}</span>` : ""}`;
   } else if (f.kind === "int" || f.kind === "float") {
     const step = f.step || (f.kind === "int" ? 1 : 0.05);
     ctl = `<input class="input" type="number" id="${id}" style="width:110px;text-align:right" step="${step}" ${f.min != null ? `min="${f.min}"` : ""} ${f.max != null ? `max="${f.max}"` : ""} value="${f.value}" data-path="${f.path}" aria-label="${esc(f.label)}">${f.suffix ? `<span class="faint small">${esc(f.suffix.trim())}</span>` : ""}`;
   } else {
     ctl = `<input class="input" id="${id}" value="${esc(f.value)}" data-path="${f.path}" aria-label="${esc(f.label)}" style="width:160px">`;
   }
-  return `<div class="field"><div><div class="field-label">${esc(f.label)}${f.experimental ? ' <span class="tag">Experimental</span>' : ""}</div>${f.help ? `<div class="field-help">${esc(f.help)}</div>` : ""}</div><div class="field-ctl">${ctl}</div></div>`;
+  return `<div class="field ${f.kind === "slider" ? "stack" : ""}"><div><div class="field-label">${esc(f.label)}${f.experimental ? ' <span class="tag">Experimental</span>' : ""}</div>${f.help ? `<div class="field-help">${esc(f.help)}</div>` : ""}</div><div class="field-ctl">${ctl}</div></div>`;
 }
 const cap = (s) => (typeof s === "string" && s.length ? s[0].toUpperCase() + s.slice(1) : s);
+const choiceLabel = (f, c) => (f.choice_labels && f.choice_labels[c]) || cap(c);
 
 function bindFields(root, onSet) {
   root.querySelectorAll("[data-path]").forEach((el) => {
@@ -143,26 +146,20 @@ function bindFields(root, onSet) {
     if (el.tagName === "BUTTON") el.onclick = () => onSet(path, el.dataset.value);
     else if (el.type === "checkbox") el.onchange = () => onSet(path, el.checked);
     else if (el.type === "range") {
-      el.oninput = () => { el.style.setProperty("--p", `${((el.value - el.min) / (el.max - el.min)) * 100}%`); el.nextElementSibling.textContent = el.value; };
+      el.oninput = () => { el.style.setProperty("--p", `${((el.value - el.min) / (el.max - el.min)) * 100}%`); el.parentElement.querySelector(".val").textContent = el.value; };
       el.onchange = () => onSet(path, Number(el.value));
     } else if (el.tagName === "SELECT") el.onchange = () => onSet(path, el.value);
     else el.onchange = () => onSet(path, el.type === "number" ? Number(el.value) : el.value);
   });
 }
 
-function sectionsHtml(sections, showAdvanced) {
-  return sections.map((s, i) => {
-    const simple = s.fields.filter((f) => f.simple);
-    const adv = s.fields.filter((f) => !f.simple);
-    const open = showAdvanced.has(i);
-    return `<div class="form-section">
-      <div class="section-head"><div class="section-title">${esc(s.title)}</div></div>
-      ${s.summary ? `<div class="faint small" style="margin-bottom:4px">${esc(s.summary)}</div>` : ""}
-      <div>${simple.map(fieldHtml).join("")}</div>
-      ${adv.length ? `<button class="disclose ${open ? "open" : ""}" data-adv="${i}" type="button" aria-expanded="${open}">${icon("chevronDown", 16)} Advanced (${adv.length})</button>
-        ${open ? `<div>${adv.map(fieldHtml).join("")}</div>` : ""}` : ""}
-    </div>`;
-  }).join('<div style="height:14px"></div>');
+// The configuration of a rod / profile: the basics in plain words, everything else behind one switch.
+function configHtml(sch, showAll) {
+  const n = sch.sections.reduce((a, x) => a + x.fields.length, 0);
+  return `<div class="basics">${sch.basic.map(fieldHtml).join("")}</div>
+    <button class="disclose ${showAll ? "open" : ""}" data-all type="button" aria-expanded="${showAll}">${icon("chevronDown", 16)} ${showAll ? "Hide" : "Show"} all settings (${n})</button>
+    ${showAll ? sch.sections.map((x) => `<div class="form-section"><div class="section-head"><div class="section-title">${esc(x.title)}</div></div>
+      ${x.fields.map(fieldHtml).join("")}</div>`).join('<div style="height:12px"></div>') : ""}`;
 }
 
 /* ------------------------------------------------------------------ dashboard */
@@ -218,7 +215,7 @@ views.dashboard = {
     $("#d-tiles").innerHTML =
       t("Game", S.game.tone, S.game.value, S.game.detail) +
       `<div class="tile"><div class="tile-head"><span>Rod &amp; skin</span><button class="btn btn-sm btn-ghost" data-go="library" type="button">Change</button></div>
-        <div class="tile-value" style="margin-top:6px"><span class="rod-art">${rodArt(S.rod.hue, 30, S.rod.special)}</span><span class="ellipsis">${esc(S.rod.name)}</span></div>
+        <div class="tile-value" style="margin-top:6px"><span class="rod-art">${rodPic(S.rod.img, S.rod.hue, 30, S.rod.special)}</span><span class="ellipsis">${esc(S.rod.name)}</span></div>
         <div class="tile-detail">${esc(S.rod.skin)} skin · ${esc(S.rod.special ? S.rod.behaviour + " minigame" : "Standard reel")}</div></div>` +
       t("Configuration", "ok", S.profile, "Saved profile in use", "", `<button class="btn btn-sm btn-ghost" data-go="profiles" type="button">Edit</button>`) +
       t("Calibration", S.calibration.tone, S.calibration.value, S.calibration.detail) +
@@ -233,7 +230,7 @@ views.dashboard = {
 
 /* ------------------------------------------------------------------ rod library */
 views.library = {
-  query: "", category: "All", sel: null, draft: null, adv: new Set(),
+  query: "", category: "All", sel: null, draft: null, all: false,
   leave() { document.body.classList.remove("drawer"); },
   render(page) {
     page.innerHTML = `
@@ -257,7 +254,7 @@ views.library = {
     $("#l-q").placeholder = `Search ${r.total || r.count} rods`;
     $("#l-grid").innerHTML = r.rods.length ? r.rods.map((x) => `
       <div class="rod ${x.name === this.sel ? "sel" : ""}" data-rod="${esc(x.name)}" role="button" tabindex="0" aria-label="${esc(x.name)}">
-        <span class="rod-art">${rodArt(x.hue, 52, x.special)}</span>
+        <span class="rod-art">${rodPic(x.img, x.hue, 52, x.special)}</span>
         <div class="grow"><div class="rod-name ellipsis">${esc(x.name)}</div><div class="rod-sub ellipsis">${esc(x.behaviour)}</div>
           <div class="rod-tags">${x.special ? '<span class="tag accent">Special</span>' : x.tuned ? '<span class="tag">Tuned</span>' : ""}${x.configured ? '<span class="tag ok">Configured</span>' : ""}${x.active ? '<span class="tag ok">In use</span>' : ""}</div></div>
         <button class="star-btn ${x.favourite ? "on" : ""}" data-fav="${esc(x.name)}" type="button" aria-label="Favourite ${esc(x.name)}" aria-pressed="${x.favourite}">${icon("star", 16)}</button>
@@ -285,12 +282,11 @@ views.library = {
     el.hidden = false;
     el.className = "card detail";
     const sch = d.schema;
-    const simpleSections = sch.sections.map((s) => ({ ...s, fields: s.fields })).filter((s) => s.fields.some((f) => f.simple));
     const state = !d.saved ? ["dirty", "New configuration - not saved yet"] : d.dirty ? ["dirty", "Unsaved changes"]
       : d.in_use ? ["", `In use · profile "${d.profile}"`] : ["", `Saved · profile "${d.profile}"`];
     const useLabel = !d.saved || d.dirty ? "Save and use" : d.in_use ? "In use" : "Use this rod";
     el.innerHTML = `
-      <div class="detail-head"><span class="rod-art">${rodArt(d.hue, 64, sch.special)}</span>
+      <div class="detail-head"><span class="rod-art">${rodPic(d.img, d.hue, 64, sch.special)}</span>
         <div class="grow"><h2 class="detail-title">${esc(d.rod)}</h2>
           <div class="row small" style="gap:6px 8px;margin-top:6px;flex-wrap:wrap">${sch.special ? `<span class="tag accent">${esc(sch.behaviour)}</span>` : '<span class="tag">Standard reel</span>'}
             <span class="faint">${esc(sch.status_text)}</span></div></div>
@@ -300,7 +296,7 @@ views.library = {
       <div class="skins">${d.skins.map((s) => `<button class="skin ${s === d.skin ? "on" : ""}" data-skin="${esc(s)}" type="button">${rodArt((d.hue + (s === "Default" ? 0 : hashHue(s))) % 360, 40, sch.special)}<span class="ellipsis" style="max-width:70px">${esc(s)}</span></button>`).join("")}
         <button class="skin" id="l-addskin" type="button"><span class="add">${icon("plus", 18)}</span>Add skin</button></div>
       <div class="section-label" style="margin-top:22px">Configuration</div>
-      <div id="l-form">${sectionsHtml(simpleSections, this.adv)}</div>
+      <div id="l-form">${configHtml(sch, this.all)}</div>
       <div class="detail-foot">
         <div class="save-state ${state[0]}">${state[0] ? toneDot("warn") : toneDot("ok")}${esc(state[1])}</div>
         <button class="btn btn-primary" id="l-use" type="button" ${useLabel === "In use" ? "disabled" : ""}>${icon("check", 16)} ${useLabel}</button>
@@ -315,13 +311,18 @@ views.library = {
       const name = await ask("Add a skin", `Name of the ${d.rod} skin. It gets its own configuration, starting from this rod's settings.`, "", "Add");
       if (name) { this.draft = await api("rod.add_skin", { rod: d.rod, skin: name }); this.renderDetail(); }
     };
-    el.querySelectorAll("[data-adv]").forEach((b) => (b.onclick = () => { const i = +b.dataset.adv; this.adv.has(i) ? this.adv.delete(i) : this.adv.add(i); this.renderDetail(); }));
+    el.querySelector("[data-all]").onclick = () => { this.all = !this.all; this.renderDetail(); };
     bindFields($("#l-form"), async (path, value) => { this.draft = await api("draft.set", { path, value }); this.renderDetail(); });
     $("#l-use").onclick = async () => { this.draft = await api("draft.save", { use: true }); toast(`Using ${d.rod}`); this.renderDetail(); this.load(); refreshState(); };
     $("#l-reset").onclick = async () => { this.draft = await api("draft.reset"); this.renderDetail(); toast("Recommended settings loaded - press Save to keep them"); };
     $("#l-start").onclick = async () => { this.draft = await api("draft.save", { use: true }); await api("start"); go("dashboard"); };
   },
 };
+// The rod's real picture (downloaded from the Fisch wiki) on a tile in its colour, or the drawn rod art.
+function rodPic(img, hue, size, special) {
+  if (!img) return rodArt(hue, size, special);
+  return `<span class="rod-pic" style="width:${size}px;height:${size}px;--h:${hue}"><img src="${esc(img)}" alt="" loading="lazy" onerror="this.parentNode.outerHTML=rodArt(${+hue || 0}, ${size}, ${!!special})"></span>`;
+}
 const hashHue = (s) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
 
 /* ------------------------------------------------------------------ automation (simple flow) */
@@ -375,7 +376,7 @@ views.automation = {
 
 /* ------------------------------------------------------------------ profiles (configuration editor) */
 views.profiles = {
-  sel: null, draft: null, adv: new Set(),
+  sel: null, draft: null, all: false,
   render(page) {
     page.innerHTML = `
       <div class="page-head"><div><h1 class="page-title">Profiles</h1>
@@ -389,7 +390,7 @@ views.profiles = {
     const r = await api("profiles");
     if (!this.sel || !r.profiles.some((p) => p.name === this.sel)) this.sel = r.active;
     $("#p-list").innerHTML = r.profiles.map((p) => `<button class="pitem ${p.name === this.sel ? "sel" : ""}" data-p="${esc(p.name)}" type="button">
-      <span class="rod-art">${rodArt(p.hue, 40, p.behaviour !== "Standard")}</span>
+      <span class="rod-art">${rodPic(p.img, p.hue, 40, p.behaviour !== "Standard")}</span>
       <span class="grow"><div class="rod-name ellipsis">${esc(p.name)}</div><div class="rod-sub ellipsis">${esc(p.rod)}${p.skin ? " · " + esc(p.skin) : ""}</div></span>
       ${p.in_use ? '<span class="tag ok">In use</span>' : ""}</button>`).join("");
     $("#p-list").querySelectorAll("[data-p]").forEach((b) => (b.onclick = () => this.open(b.dataset.p)));
@@ -406,7 +407,7 @@ views.profiles = {
     if (!d || !el) return;
     el.className = "card editor";
     el.innerHTML = `
-      <div class="editor-head"><span class="rod-art">${rodArt(d.hue, 48, d.schema.special)}</span>
+      <div class="editor-head"><span class="rod-art">${rodPic(d.img, d.hue, 48, d.schema.special)}</span>
         <div class="grow"><div class="detail-title">${esc(d.profile)}</div>
           <div class="save-state ${d.dirty ? "dirty" : ""}" style="margin-top:3px">${d.dirty ? toneDot("warn") + "Unsaved changes" : esc(d.schema.rod) + (d.in_use ? " · in use" : "")}</div></div>
         <div class="editor-actions">
@@ -420,9 +421,9 @@ views.profiles = {
       <div class="editor-body">
         <div class="row" style="justify-content:space-between;margin:14px 0 6px"><span class="faint small">${esc(d.schema.note)}</span>
           <button class="btn btn-sm btn-ghost" id="e-rec" type="button">${icon("reset", 15)} Recommended</button></div>
-        <div id="e-form">${sectionsHtml(d.schema.sections, this.adv)}</div></div>`;
+        <div id="e-form">${configHtml(d.schema, this.all)}</div></div>`;
     bindFields($("#e-form"), async (path, value) => { this.draft = await api("draft.set", { path, value }); this.renderEditor(); });
-    el.querySelectorAll("[data-adv]").forEach((b) => (b.onclick = () => { const i = +b.dataset.adv; this.adv.has(i) ? this.adv.delete(i) : this.adv.add(i); this.renderEditor(); }));
+    el.querySelector("[data-all]").onclick = () => { this.all = !this.all; this.renderEditor(); };
     const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
     on("#e-save", async () => { this.draft = await api("draft.save", { use: false }); toast("Saved"); this.renderEditor(); refreshState(); });
     on("#e-revert", async () => { this.draft = await api("draft.revert"); this.renderEditor(); });
@@ -439,7 +440,7 @@ views.profiles = {
 views.settings = {
   tab: "general", timer: null, listening: null,
   render(page) {
-    const tabs = [["general", "General"], ["hotkeys", "Hotkeys"], ["diagnostics", "Diagnostics"], ["tools", "Advanced tools"], ["licence", "Licence"], ["about", "About"]];
+    const tabs = [["general", "General"], ["hotkeys", "Hotkeys"], ["diagnostics", "Diagnostics"], ["tools", "Tools"], ["licence", "Licence"], ["about", "About"]];
     page.innerHTML = `<div class="page-head"><div><h1 class="page-title">Settings</h1>
       <p class="page-sub">How the app behaves. Settings for a rod are in its profile.</p></div></div>
       <div class="tabs" role="tablist">${tabs.map(([id, l]) => `<button class="tab ${id === this.tab ? "on" : ""}" data-tab="${id}" role="tab" aria-selected="${id === this.tab}" type="button">${l}</button>`).join("")}</div>
@@ -502,7 +503,7 @@ views.settings = {
       ["addons", "box", "Add-ons", "Totems, potions, Sovereign recharge, appraising."], ["hunts", "target", "Hunts", "Hunt and event alerts."],
       ["assistant", "sparkles", "AI assistant", "Questions and reading the game screen (needs an API key)."]];
     body.innerHTML = `<div class="tools">${items.map(([id, ic, t, s]) => `<button class="tool" data-panel="${id}" type="button"><span class="tool-ic">${icon(ic, 20)}</span><span><div class="tool-title">${t}</div><div class="tool-sub">${s}</div></span></button>`).join("")}</div>
-      <p class="faint small" style="margin-top:14px">These open in their own window.</p>`;
+      <p class="faint small" style="margin-top:14px">These open right here; Back or Esc returns.</p>`;
     body.querySelectorAll("[data-panel]").forEach((b) => (b.onclick = () => api("open_panel", { name: b.dataset.panel })));
   },
   async licence(body) {

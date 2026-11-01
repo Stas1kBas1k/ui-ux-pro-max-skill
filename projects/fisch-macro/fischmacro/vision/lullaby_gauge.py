@@ -28,6 +28,7 @@ ANGLES = 360  # rows of the half-plane unwrap (0.5 degree each)
 class LullabyGauge:
     def __init__(self, history: int = 15):
         self.history = history
+        self.offset: tuple[float, float] | None = None  # where the moon really is, relative to the estimate
         self.reset()
 
     def reset(self) -> None:
@@ -41,6 +42,12 @@ class LullabyGauge:
         return pol[ANGLES:]  # angles 180..360 deg: left -> top -> right (image y points down)
 
     def _find_radius(self, gray: np.ndarray, rmin: int) -> int | None:
+        r, score = self._ring(gray, rmin)
+        return r if score >= 0.75 else None
+
+    @staticmethod
+    def _ring(gray: np.ndarray, rmin: int) -> tuple[int | None, float]:
+        """The radius whose band is all very dark or very light (the ring), and how clean it is."""
         best, best_r = 0.0, None
         for r in range(rmin, gray.shape[1] - 4, 2):
             band = gray[:, r - 2:r + 3]
@@ -48,7 +55,40 @@ class LullabyGauge:
             share = dark + light
             if share > best and dark > 0.05 and light > 0.05:
                 best, best_r = share, r
-        return best_r if best >= 0.75 else None
+        return best_r, best
+
+    def _locate(self, img: np.ndarray, centre: tuple[float, float], scale: float, rmax: int) -> None:
+        """The estimate comes from the saved reel region, which can be a little off on another screen; a
+        centre 25-50 px off bends the angles enough to click on the red part. Try positions around it and
+        keep the one where the ring is sharpest (only exactly round about its true centre)."""
+        g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+        k = 2  # scored at half the radius samples and a quarter of the angles: ~10x cheaper, same peak
+        rmin = int(0.07 * scale) // k
+        n = ANGLES // 4
+
+        def score(dx: float, dy: float, full: bool) -> float:
+            if full:
+                pol = cv2.warpPolar(g, (rmax, 2 * ANGLES), (centre[0] + dx, centre[1] + dy), rmax,
+                                    cv2.WARP_POLAR_LINEAR)[ANGLES:]
+                return self._ring(pol, rmin * k)[1]
+            pol = cv2.warpPolar(g, (rmax // k, 2 * n), (centre[0] + dx, centre[1] + dy), rmax,
+                                cv2.WARP_POLAR_LINEAR)[n:]
+            return self._ring(pol, max(3, rmin))[1]
+
+        best_d = (0.0, 0.0)
+        # coarse (about +-50 px at 1080p), then finer, both cheap; then a last look at full resolution
+        for step, span, full in ((0.012 * scale, 4, False), (0.004 * scale, 3, False), (0.002 * scale, 2, True)):
+            cx, cy = best_d
+            best = -1.0
+            for i in range(-span, span + 1):
+                for j in range(-span, span + 1):
+                    d = (cx + i * step, cy + j * step)
+                    sc = score(*d, full)
+                    if sc > best + 1e-6:
+                        best, best_d = sc, d
+        # the real gauge scores ~0.97; ring-like shapes elsewhere (e.g. the test game) reach ~0.78
+        if best >= 0.9:
+            self.offset = best_d
 
     def update(self, img: np.ndarray, centre: tuple[float, float], scale: float) -> TimingResult:
         """``img``: the frame (or a crop holding the gauge); ``centre``: the moon's centre in it (pixels);
@@ -57,6 +97,13 @@ class LullabyGauge:
         rmax = int(0.24 * scale)
         if img is None or img.size == 0 or rmax < 40:
             return res
+        if self.radius is None and self.offset is None:
+            self._tries = getattr(self, "_tries", 0) + 1
+            if self._tries % 30 != 1:  # not on screen yet: look again about once a second, not every frame
+                return res
+            self._locate(img, centre, scale, rmax)
+        if self.offset is not None:
+            centre = (centre[0] + self.offset[0], centre[1] + self.offset[1])
         gray = cv2.cvtColor(self._unwrap(img, centre, rmax), cv2.COLOR_BGR2GRAY)
         if self.radius is None:
             self.radius = self._find_radius(gray, int(0.07 * scale))

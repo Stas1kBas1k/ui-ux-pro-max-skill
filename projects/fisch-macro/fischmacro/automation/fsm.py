@@ -88,6 +88,9 @@ class FsmContext:
     bar_center: float | None = None  # last clearly seen catch bar (reeling)
     bar_seen: float = 0.0
     fallback_warned: bool = False
+    last_shake_seen: float = 0.0  # shake: when a shake button was last on screen
+    reel_sig: tuple | None = None  # reeling: what the reel looked like, and since when (stuck check)
+    reel_sig_since: float = 0.0
 
 
 class FishingStateMachine:
@@ -267,11 +270,11 @@ class FishingStateMachine:
         # bar was not taken by the game (too early after a catch, a dropped click). Press again at once
         # instead of waiting out the whole bite timeout with no line in the water.
         if (cfg.mode == "perfect" and self.cast_bar_seen_count >= 1 and not c.cast_seen and held >= 0.7
-                and c.attempts < 2 and not (obs.cast.present and self._confident(obs.cast.confidence))):
+                and c.attempts < 4 and not (obs.cast.present and self._confident(obs.cast.confidence))):
             self.input.mouse_up()
             c.attempts += 1
             c.phase, c.t_mark = 1, now
-            self.emit("warning", f"Cast did not start (no power bar) - pressing again ({c.attempts}/2)")
+            self.emit("warning", f"Cast did not start (no power bar) - pressing again ({c.attempts}/4)")
             return
         if obs.reel.ui_present:
             self.input.mouse_up()
@@ -331,6 +334,13 @@ class FishingStateMachine:
         if self._elapsed(now) >= self.profile.timing.shake_timeout:
             self._go(State.RECOVERY, now, "shake timeout")
             return
+        if obs.shake.present:
+            c.last_shake_seen = now
+        stuck = self.profile.timing.stuck_seconds
+        if cfg.mode == "click" and now - max(c.entered, c.last_shake_seen) >= stuck:
+            # shaking stopped and the reel never came: the game dropped the bite
+            self._go(State.RECOVERY, now, "shake stuck")
+            return
         if cfg.mode == "navigation":
             if c.phase == 0:
                 if cfg.nav_toggle_key:
@@ -373,6 +383,11 @@ class FishingStateMachine:
             self.cycle.catch_popup = True
         if obs.reel.ui_present:
             c.last_reel_ui = now
+            if self._reel_stuck(obs, now):
+                self.input.mouse_up()
+                self.reel.release()
+                self._go(State.RECOVERY, now, "reel stuck")
+                return
             if obs.reel.bar_found and obs.reel.bar_confidence >= cfg.min_confidence:
                 c.bar_center, c.bar_seen = obs.reel.bar_center, now
             if obs.progress.present and self._confident(obs.progress.confidence):
@@ -392,7 +407,8 @@ class FishingStateMachine:
                 from fischmacro.vision.reel_edges import dodge_aim
                 aim = dodge_aim(ts.fish_x, ts.bar_left, ts.bar_right, list(obs.reel.marks))
             hold = self.reel.update(aim, ts.bar_left, ts.bar_right, now,
-                                    max(ts.confidence, cfg.min_confidence), self.min_switch_interval)
+                                    max(ts.confidence, cfg.min_confidence),
+                                    max(self.min_switch_interval, cfg.min_switch_ms / 1000.0))
             if hold:
                 # Lullaby: a press off-beat costs -5% progress, so wait for a lit section while the fish is
                 # still inside the bar; once it is slipping out, losing the fish costs more than a miss.
@@ -430,6 +446,17 @@ class FishingStateMachine:
             return
         if self._elapsed(now) >= self.profile.timing.reel_timeout:
             self._go(State.RECOVERY, now, "reel timeout")
+
+    def _reel_stuck(self, obs: Observation, now: float) -> bool:
+        """The reel is on screen but nothing on it moves (fish, bar, progress): the game froze the minigame."""
+        c, r = self.ctx, obs.reel
+        prog = obs.progress.fill if obs.progress.present else None
+        sig = (round(r.fish_x, 2) if r.fish_found else None, round(r.bar_left, 2) if r.bar_found else None,
+               round(prog, 2) if prog is not None else None)
+        if sig != c.reel_sig or sig[0] is None:  # stuck = the fish is seen and does not move; never cancel blind
+            c.reel_sig, c.reel_sig_since = sig, now
+            return False
+        return now - c.reel_sig_since >= self.profile.timing.stuck_seconds
 
     def _finish_reel(self, now: float) -> None:
         self.input.mouse_up()
@@ -481,11 +508,14 @@ class FishingStateMachine:
         if c.reason == "disconnect":
             self._recover_disconnect(obs, now)
             return
-        # Look before acting: the game may already be in a known state.
-        if obs.reel.ui_present and t > 0.2:
+        stuck = c.reason in ("reel stuck", "shake stuck")
+        # Look before acting: the game may already be in a known state (not the stuck screen we are clearing).
+        if stuck and c.phase == 0:
+            pass
+        elif obs.reel.ui_present and t > 0.2 and not (stuck and t < self.profile.timing.recovery_delay):
             self._go(State.REELING, now, "resynced to minigame", count=False)
             return
-        if self.profile.shake.mode == "click" and obs.shake.present and t > 0.2:
+        elif self.profile.shake.mode == "click" and obs.shake.present and t > 0.2 and not stuck:
             self._go(State.SHAKE, now, "resynced to shake", count=False)
             return
         if c.phase == 0 and t >= min(0.5, timing.recovery_delay):
@@ -493,9 +523,11 @@ class FishingStateMachine:
                 self._click_client(0.5, 0.45)
             eq = self.profile.equipment
             if eq.reequip_on_recovery and eq.rod_slot_key:
-                self.input.press_key(eq.rod_slot_key)
+                self.input.mouse_up()
+                self.input.press_key(eq.rod_slot_key)   # unequip
                 self.sleep(0.4)
-                self.input.press_key(eq.rod_slot_key)
+                self.input.press_key(eq.rod_slot_key)   # equip again
+                self.emit("recovery", f"Rod re-equipped ({c.reason}) - casting again")
             c.phase = 1
             return
         if t >= timing.recovery_delay:

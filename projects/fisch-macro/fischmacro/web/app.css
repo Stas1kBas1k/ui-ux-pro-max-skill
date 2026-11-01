@@ -357,3 +357,13 @@ body.drawer .main { padding-right: 478px; }
 }
 
 [hidden] { display: none !important; }
+
+/* a slider gets the full width under its label (the narrow rod drawer squeezed the label otherwise) */
+.field.stack { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.field.stack .field-ctl { justify-content: flex-start; }
+.field.stack input[type=range] { flex: 1; width: auto; min-width: 120px; }
+
+/* real rod picture: tall thumbnails fit inside a tile coloured like the drawn art */
+.rod-pic { display: inline-grid; place-items: center; border-radius: 26%; overflow: hidden; flex: none;
+  background: radial-gradient(circle at 70% 25%, hsl(var(--h) 45% 30%), hsl(calc(var(--h) + 40) 55% 11%)); }
+.rod-pic img { width: 86%; height: 86%; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .55)); }

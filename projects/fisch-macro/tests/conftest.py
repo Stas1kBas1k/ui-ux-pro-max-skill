@@ -8,6 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("FISCHMACRO_NO_NETWORK", "1")  # no rod-picture downloads during tests
 os.environ.setdefault("FISCHMACRO_UI", "classic")  # window tests drive the classic widgets; test_web_ui opts in
 os.environ["FISCHMACRO_HOME"] = tempfile.mkdtemp(prefix="fischmacro-test-")
 

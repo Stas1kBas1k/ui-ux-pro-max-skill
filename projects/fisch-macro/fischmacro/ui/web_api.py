@@ -34,7 +34,7 @@ SETTINGS_SECTIONS = [
     ("Notifications", [("notifications", "toasts"), ("notifications", "tray_icon"),
                        ("notifications", "desktop_notifications"), ("notifications", "sound_on_error")]),
     ("Startup", [("startup", "start_minimized"), ("startup", "confirm_exit_while_running"),
-                 ("appearance", "interface")]),
+                 ("appearance", "interface"), ("library", "rod_pictures")]),
 ]
 
 # Wording for settings whose schema has no label, or whose help is written for the classic pages.
@@ -61,6 +61,10 @@ class WebApi:
         self.draft_rod = ""
         self.draft_skin = DEFAULT_SKIN
         self.test_result = ""
+        from fischmacro import paths
+        from fischmacro.ui.rod_images import RodImages
+        self.images = RodImages(paths.data_dir() / "rod_images")
+        self._fetch_pictures()
         self._methods: dict[str, Callable] = {
             name[4:].replace("__", "."): getattr(self, name) for name in dir(self) if name.startswith("api_")}
 
@@ -72,6 +76,15 @@ class WebApi:
         return fn(**(args or {}))
 
     # ------------------------------------------------------------------ state (polled ~5x a second)
+    def _fetch_pictures(self) -> None:
+        import os
+        if self.ctx.settings.library.rod_pictures and not os.environ.get("FISCHMACRO_NO_NETWORK"):
+            from fischmacro.game_data import ALL_RODS
+            self.images.start(list(ALL_RODS))
+
+    def _img(self, rod: str) -> str | None:
+        return self.images.url(rod) if rod and self.ctx.settings.library.rod_pictures else None
+
     def api_state(self) -> dict:
         eng, ctx = self.ctx.engine, self.ctx
         s = eng.snapshot()
@@ -114,7 +127,8 @@ class WebApi:
             "message": s.message or "", "error": s.last_error or "",
             "game": dict(zip(("tone", "value", "detail"), game)),
             "rod": {"name": rod, "skin": p.equipment.skin or DEFAULT_SKIN, "behaviour": b.label,
-                    "special": p.minigame.kind != "none", "hue": rod_hue(rod, p.minigame.kind)},
+                    "special": p.minigame.kind != "none", "hue": rod_hue(rod, p.minigame.kind),
+                    "img": self._img(rod)},
             "profile": p.name, "calibration": dict(zip(("tone", "value", "detail"), calib)),
             "tracking": dict(zip(("tone", "value", "detail", "level"), track)),
             "session": {"caught": sess.catches, "escaped": sess.failures,
@@ -162,7 +176,7 @@ class WebApi:
                         "behaviour": d.label if info.special else ("Tuned settings" if info.preset_note else
                                                                     "Standard reel"),
                         "configured": bool(info.profiles), "favourite": info.favourite,
-                        "active": r == active_rod, "hue": rod_hue(r, info.kind),
+                        "active": r == active_rod, "hue": rod_hue(r, info.kind), "img": self._img(r),
                         "tuned": bool(info.preset_note)})
         from fischmacro.game_data import ALL_RODS
         return {"rods": out, "count": len(out), "total": len(ALL_RODS), "categories": ["All", "Special minigame", "Favourites",
@@ -234,7 +248,7 @@ class WebApi:
                 (d.equipment.skin or DEFAULT_SKIN), "skins": self.lib.skins_for(rod) if rod else [DEFAULT_SKIN],
                 "saved": self.saved is not None, "dirty": is_dirty(d, self.saved),
                 "in_use": d.name == self.ctx.profile.name, "schema": editor_schema(d),
-                "hue": rod_hue(rod, d.minigame.kind)}
+                "hue": rod_hue(rod, d.minigame.kind), "img": self._img(rod)}
 
     # ------------------------------------------------------------------ profiles
     def api_profiles(self) -> dict:
@@ -246,7 +260,8 @@ class WebApi:
                 continue
             rod = p.equipment.rod_name or "Any rod"
             out.append({"name": n, "rod": rod, "skin": p.equipment.skin, "in_use": n == self.ctx.profile.name,
-                        "behaviour": behaviour_for(p.minigame.kind).label, "hue": rod_hue(rod, p.minigame.kind)})
+                        "behaviour": behaviour_for(p.minigame.kind).label, "hue": rod_hue(rod, p.minigame.kind),
+                        "img": self._img(rod)})
         return {"profiles": out, "active": self.ctx.profile.name}
 
     def api_profile__open(self, name: str) -> dict:
@@ -355,8 +370,12 @@ class WebApi:
         return {"ok": True}
 
     def api_open_panel(self, name: str) -> dict:
-        """Tools kept from the classic interface (add-ons, hunts, assistant, vision, logs), in their own window."""
+        """Tool pages (add-ons, hunts, assistant, vision, logs), shown inside the window over the content area."""
         self._native("panel", name)
+        return {"ok": True}
+
+    def api_panel__close(self) -> dict:
+        self._native("panel_close")
         return {"ok": True}
 
     # ------------------------------------------------------------------ settings
@@ -394,6 +413,8 @@ class WebApi:
         self.ctx.settings_edited(sec)
         if sec == "capture":
             self.ctx.restart_vision_if_idle()
+        if sec == "library":
+            self._fetch_pictures()
         if sec == "appearance":
             self.ctx.appearance_changed.emit()  # the window is rebuilt with the chosen interface
         return self.api_settings()

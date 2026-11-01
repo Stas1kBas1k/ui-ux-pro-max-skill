@@ -94,6 +94,67 @@ class RiskDialog(QDialog):
         v.addWidget(bb)
 
 
+class ToolPanel(QFrame):
+    """A tool page (Add-ons, Hunts, AI assistant, ...) shown inside the main window, over the content area of
+    the new interface, with a Back button. The sidebar stays visible and usable."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("toolPanel")
+        self.setStyleSheet("#toolPanel { background: #08090e; } "
+                           "#toolPanelHead { background: #08090e; border-bottom: 1px solid rgba(255,255,255,0.07); } "
+                           "#toolPanelTitle { color: #eef0f6; font-size: 20px; font-weight: 700; } "
+                           "#toolPanelBack { color: #c9cbd6; background: rgba(255,255,255,0.05); "
+                           "border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 7px 14px; "
+                           "font-weight: 600; } #toolPanelBack:hover { background: rgba(255,255,255,0.1); }")
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+        head = QFrame()
+        head.setObjectName("toolPanelHead")
+        h = QHBoxLayout(head)
+        h.setContentsMargins(28, 16, 28, 14)
+        h.setSpacing(16)
+        self.back = QPushButton("\u2190  Back")
+        self.back.setObjectName("toolPanelBack")
+        self.back.setCursor(Qt.PointingHandCursor)
+        self.title = QLabel()
+        self.title.setObjectName("toolPanelTitle")
+        h.addWidget(self.back)
+        h.addWidget(self.title, 1)
+        v.addWidget(head)
+        self.stack = QStackedWidget()
+        v.addWidget(self.stack, 1)
+        QShortcut(QKeySequence("Esc"), self, activated=self.back.click)
+        self.hide()
+
+    def show_page(self, widget: QWidget, title: str) -> None:
+        if self.stack.indexOf(widget) < 0:
+            self.stack.addWidget(widget)
+        widget.show()
+        self.stack.setCurrentWidget(widget)
+        self.title.setText(title)
+        self.show()
+        self.raise_()
+
+
+class WebShell(QWidget):
+    """The new interface plus the tool panel laid over its content area (right of the 248 px sidebar)."""
+
+    SIDEBAR = 248  # app.css: .app { grid-template-columns: 248px 1fr }
+
+    def __init__(self, web: QWidget):
+        super().__init__()
+        self.web = web
+        web.setParent(self)
+        self.panel = ToolPanel(self)
+
+    def resizeEvent(self, e):  # noqa: N802
+        super().resizeEvent(e)
+        self.web.setGeometry(0, 0, self.width(), self.height())
+        self.panel.setGeometry(self.SIDEBAR, 0, max(0, self.width() - self.SIDEBAR), self.height())
+
+
 class MainWindow(QMainWindow):
     NAV = [("dashboard", "Dashboard"), ("library", "Rod Library"), ("automation", "Automation"),
            ("profiles", "Profiles"), ("settings", "Settings")]
@@ -102,7 +163,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.ctx = ctx
         self.web = None            # the HTML interface (WebInterface) when it is in use
-        self.tools_window = None   # in the new interface, the classic tool pages open in this window
+        self.panel = None          # in the new interface, tool pages open here, inside the window
+        self.classic_root = None
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(1100, 720)
         self.resize(1320, 860)
@@ -290,16 +352,15 @@ class MainWindow(QMainWindow):
         from fischmacro.ui.web_view import WebInterface
         self.web = WebInterface(WebApi(self.ctx, self), self)
         # setCentralWidget() deletes the old central widget (deferred, once the event loop runs), which
-        # would destroy the classic tool pages: take it out first, then it lives on in the tools window.
+        # would destroy the classic tool pages: take it out first and keep it (hidden) as their owner.
         self.takeCentralWidget()
-        self.setCentralWidget(self.web)
-        self.tools_window = QWidget(None, Qt.Window)
-        self.tools_window.setWindowTitle(f"{APP_NAME} - tools")
-        self.tools_window.setWindowIcon(app_icon())
-        self.tools_window.resize(1180, 800)
-        lay = QVBoxLayout(self.tools_window)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(classic_root)
+        self.classic_root = classic_root
+        classic_root.setParent(self)
+        classic_root.hide()
+        shell = WebShell(self.web)
+        self.panel = shell.panel
+        self.panel.back.clicked.connect(self.close_panel)
+        self.setCentralWidget(shell)
         self.sidebar.hide()
         self.statusBar().hide()
 
@@ -311,6 +372,8 @@ class MainWindow(QMainWindow):
         from fischmacro import paths
         if what == "regions":
             self.toggle_calibration()
+        elif what == "panel_close":
+            self.close_panel()
         elif what == "wizard":
             self.open_setup_wizard()
         elif what == "panel":
@@ -331,16 +394,29 @@ class MainWindow(QMainWindow):
             raise ValueError(f"unknown action {what}")
         return None
 
+    PANEL_TITLES = {"addons": "Add-ons", "hunts": "Hunts & events", "assistant": "AI assistant",
+                    "vision": "Vision & calibration", "logs": "Logs & statistics", "fishing": "Fishing",
+                    "setup_page": "Setup & tests", "profiles": "Profiles"}
+
     def open_panel(self, widget: QWidget) -> None:
-        self.show_widget(widget)
-        if self.tools_window is not None:
-            self.tools_window.show()
-            self.tools_window.raise_()
-            self.tools_window.activateWindow()
+        if self.panel is None:  # classic interface: the page is a tab of the window itself
+            self.show_widget(widget)
+            return
+        for i in range(self.stack.count()):  # move the page out of its classic tab into the panel
+            hub = self.stack.widget(i)
+            if isinstance(hub, QTabWidget) and hub.indexOf(widget) >= 0:
+                hub.removeTab(hub.indexOf(widget))
+        attr = next((a for a in self.PANEL_TITLES if getattr(self, a, None) is widget), "")
+        self.panel.show_page(widget, self.PANEL_TITLES.get(attr, ""))
+        self._page_changed()
+
+    def close_panel(self) -> None:
+        if self.panel is not None and self.panel.isVisible():
+            self.panel.hide()
             self._page_changed()
 
     def classic_visible(self) -> bool:
-        return self.web is None or (self.tools_window is not None and self.tools_window.isVisible())
+        return self.web is None or (self.panel is not None and self.panel.isVisible())
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -406,6 +482,8 @@ class MainWindow(QMainWindow):
         return hub
 
     def current_page(self) -> QWidget:
+        if self.panel is not None:
+            return self.panel.stack.currentWidget() if self.panel.isVisible() else None
         w = self.stack.currentWidget()
         return w.currentWidget() if isinstance(w, QTabWidget) else w
 
@@ -714,8 +792,6 @@ class MainWindow(QMainWindow):
         self.overlay.close()
         if self.web is not None:
             self.web.timer.stop()
-        if self.tools_window is not None:
-            self.tools_window.close()
 
     def closeEvent(self, e):
         if self.rebuilding:
@@ -730,8 +806,6 @@ class MainWindow(QMainWindow):
             eng.stop_automation("application closed")
         if self.calibration is not None:
             self.calibration.close()
-        if self.tools_window is not None:
-            self.tools_window.close()
         if self.web is not None:
             self.web.timer.stop()
         self.overlay.close()

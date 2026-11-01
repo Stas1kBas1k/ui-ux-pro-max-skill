@@ -170,6 +170,7 @@ class AutomationEngine:
             self.profile = profile
             self.vision = VisionEngine(profile)
             self.vision.verify_shake = not self.simulated
+            self.vision.lullaby_fallback = self.simulated
             self.fsm = self._new_fsm()
 
     def set_preview(self, wanted: bool) -> None:
@@ -182,6 +183,7 @@ class AutomationEngine:
                 return
             self.source = self._make_source()
             self.vision.verify_shake = not self.source.simulated
+            self.vision.lullaby_fallback = self.source.simulated
             self.inputs.release_all()
             self.inputs = self._make_inputs()
             self.fsm = self._new_fsm()
@@ -675,6 +677,7 @@ class AutomationEngine:
             self.profile = p
             self.vision = VisionEngine(p)
             self.vision.verify_shake = not self.simulated
+            self.vision.lullaby_fallback = self.simulated
             f = self.fsm
             f.profile = p
             f.reel = ReelController(p.reel)

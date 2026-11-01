@@ -70,7 +70,8 @@ class ProfileManager:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ProfileError(f"Profile '{name}' could not be read: {exc}") from exc
-        profile = from_dict(Profile, data.get("profile", data))
+        raw = data.get("profile", data)
+        profile = upgrade(from_dict(Profile, raw), raw)
         profile.name = name
         return profile
 
@@ -123,7 +124,8 @@ class ProfileManager:
             raise ProfileError(f"Could not read profile file: {exc}") from exc
         if not isinstance(data, dict):
             raise ProfileError("Not a profile file.")
-        profile = from_dict(Profile, data.get("profile", data))
+        raw = data.get("profile", data)
+        profile = upgrade(from_dict(Profile, raw), raw)
         base = validate_name(name or profile.name or Path(source).stem)
         candidate, i = base, 2
         while self.exists(candidate):
@@ -153,3 +155,27 @@ class SettingsStore:
 
     def save(self, settings: AppSettings) -> None:
         _atomic_write(self.path, to_dict(settings))
+
+
+def upgrade(profile: Profile, raw: dict) -> Profile:
+    """Bring a profile saved by an older version up to date. Only values still at the old default change;
+    anything the player set by hand is kept."""
+    if not isinstance(raw, dict) or int(raw.get("revision", 1) or 1) >= 2:
+        return profile
+    # revision 2: recast sooner after a catch, and a calmer Sensitivity scale
+    t, c, r = profile.timing, profile.casting, profile.reel
+    if abs(t.post_catch_delay - 1.6) < 1e-6:
+        t.post_catch_delay = 0.5
+    if abs(c.pre_cast_delay - 0.35) < 1e-6:
+        c.pre_cast_delay = 0.15
+    if abs(r.end_grace - 0.6) < 1e-6:
+        r.end_grace = 0.35
+    from fischmacro.rods.config import set_sensitivity
+    for old in range(1, 11):  # gains set by the old Sensitivity slider: same number, new (calmer) meaning
+        k = 0.5 + old / 10
+        if abs(r.kp - round(3.0 * k, 2)) < 1e-6 and abs(r.kd - round(0.45 * k, 2)) < 1e-6:
+            set_sensitivity(profile, old)
+            break
+    profile.equipment.reequip_on_recovery = True  # now the way out of a reel the game left stuck
+    profile.revision = 2
+    return profile

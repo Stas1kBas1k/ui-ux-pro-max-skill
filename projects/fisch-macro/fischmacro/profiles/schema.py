@@ -145,7 +145,7 @@ class CastingConfig:
     hold_seconds: float = opt(0.95, "Cast hold time", "Used in timed mode, and as fallback when the power bar is not seen.", min=0.05, max=5.0, step=0.05, decimals=2, suffix=" s")
     perfect_threshold: float = opt(0.95, "Perfect cast threshold", "Release once the power bar is at least this full.", min=0.5, max=1.0, step=0.01, decimals=2, experimental=True)
     max_hold_seconds: float = opt(3.0, "Max cast hold", "Safety limit: always release after this long.", min=0.5, max=10.0, step=0.1, decimals=1, suffix=" s")
-    pre_cast_delay: float = opt(0.35, "Delay before cast", min=0.0, max=5.0, step=0.05, decimals=2, suffix=" s")
+    pre_cast_delay: float = opt(0.15, "Delay before cast", min=0.0, max=5.0, step=0.05, decimals=2, suffix=" s")
     move_mouse_to_center: bool = opt(True, "Move cursor to game centre before casting")
 
 
@@ -171,9 +171,9 @@ class ReelConfig:
                              step=0.05, decimals=2, suffix=" s")
     mpc_margin: float = opt(0.15, "Precision safety margin", "Keeps the fish this far inside the bar edges (fraction of "
                             "bar width).", min=0.0, max=0.45, step=0.05, decimals=2)
-    kp: float = opt(3.0, "Response strength (Kp)", "Proportional gain on fish/bar error.", min=0.0, max=20.0, step=0.1, decimals=2)
-    kd: float = opt(0.45, "Damping (Kd)", "Derivative gain; reduces overshoot.", min=0.0, max=5.0, step=0.05, decimals=2)
-    feedforward: float = opt(0.25, "Velocity feed-forward", "Adds fish velocity to the command.", min=0.0, max=3.0, step=0.05, decimals=2)
+    kp: float = opt(2.1, "Response strength (Kp)", "Proportional gain on fish/bar error.", min=0.0, max=20.0, step=0.1, decimals=2)
+    kd: float = opt(0.32, "Damping (Kd)", "Derivative gain; reduces overshoot.", min=0.0, max=5.0, step=0.05, decimals=2)
+    feedforward: float = opt(0.18, "Velocity feed-forward", "Adds fish velocity to the command.", min=0.0, max=3.0, step=0.05, decimals=2)
     lookahead: float = opt(0.08, "Prediction look-ahead", "Seconds of fish motion to predict.", min=0.0, max=0.5, step=0.01, decimals=2, suffix=" s")
     smoothing: float = opt(0.5, "Velocity smoothing", "0 = raw, 0.95 = very smooth.", min=0.0, max=0.95, step=0.05, decimals=2)
     hold_bias: float = opt(0.5, "Hover duty", "Fraction of time held that keeps the bar still (rod dependent).", min=0.05, max=0.95, step=0.01, decimals=2)
@@ -182,7 +182,13 @@ class ReelConfig:
     edge_margin: float = opt(0.07, "Edge margin", "Near an edge the bar is driven fully toward it.", min=0.0, max=0.3, step=0.01, decimals=2)
     max_hold_seconds: float = opt(3.0, "Max continuous hold", "Safety limit on holding the mouse.", min=0.2, max=15.0, step=0.1, decimals=1, suffix=" s")
     min_confidence: float = opt(0.45, "Reel min confidence", "Below this the mouse is released.", min=0.05, max=0.99, step=0.05, decimals=2)
-    end_grace: float = opt(0.6, "Minigame end grace", "Reel bar must be gone this long to count as ended.", min=0.1, max=5.0, step=0.1, decimals=1, suffix=" s")
+    min_switch_ms: int = opt(50, "Shortest hold / release", "The mouse is held or released for at least this "
+                             "long. Higher is calmer (fewer, longer clicks); 0 reacts every frame. Set by "
+                             "Sensitivity.", min=0, max=150, suffix=" ms")
+    calm_zone: float = opt(0.2, "Calm zone", "Shortest hold / release only applies while the fish is within this "
+                           "share of the bar width from its centre (0.5 = the bar edge); outside it the bar reacts at "
+                           "once.", min=0.0, max=1.0, step=0.05, decimals=2)
+    end_grace: float = opt(0.35, "Minigame end grace", "Reel bar must be gone this long to count as ended.", min=0.1, max=5.0, step=0.1, decimals=1, suffix=" s")
     lost_fish_timeout: float = opt(1.2, "Lost fish timeout", "Release if the fish is not seen this long.", min=0.1, max=10.0, step=0.1, decimals=1, suffix=" s")
     success_threshold: float = opt(0.75, "Success progress", "Progress at end above this counts as a catch.", min=0.3, max=1.0, step=0.05, decimals=2)
     fail_threshold: float = opt(0.2, "Failure progress", "Progress at end below this counts as a failure.", min=0.0, max=0.7, step=0.05, decimals=2)
@@ -238,7 +244,10 @@ class TimingConfig:
     bite_timeout: float = opt(45.0, "Bite timeout", "Recast if nothing bites within this time.", min=3.0, max=600.0, step=1.0, decimals=0, suffix=" s")
     shake_timeout: float = opt(25.0, "Shake timeout", min=2.0, max=300.0, step=1.0, decimals=0, suffix=" s")
     reel_timeout: float = opt(120.0, "Reel timeout", min=5.0, max=600.0, step=5.0, decimals=0, suffix=" s")
-    post_catch_delay: float = opt(1.6, "Delay after catch", min=0.0, max=30.0, step=0.1, decimals=1, suffix=" s")
+    post_catch_delay: float = opt(0.5, "Delay after catch", min=0.0, max=30.0, step=0.1, decimals=1, suffix=" s")
+    stuck_seconds: float = opt(6.0, "Stuck after", "If the reel is on screen but nothing on it moves for this long, or "
+                               "shaking stops and no reel appears for this long, the rod is re-equipped and cast "
+                               "again.", min=2.0, max=60.0, step=0.5, decimals=1, suffix=" s")
     recovery_delay: float = opt(2.0, "Recovery delay", min=0.0, max=60.0, step=0.5, decimals=1, suffix=" s")
     max_consecutive_recoveries: int = opt(5, "Max recoveries in a row", "Exceeding this stops automation with an error.", min=1, max=100)
     capture_failure_limit: int = opt(30, "Capture failures before error", min=1, max=1000)
@@ -251,12 +260,15 @@ class EquipmentConfig:
     skin: str = opt("", "Skin", "Optional label; each skin with different minigame colours gets its own profile.")
     rod_slot_key: str = opt("1", "Rod hotbar key", kind="key")
     equip_before_cast: bool = opt(False, "Press rod key before every cast")
-    reequip_on_recovery: bool = opt(False, "Re-equip rod during recovery", "Presses the rod key twice (unequip + equip). Only enable if that resets your rod.")
+    reequip_on_recovery: bool = opt(True, "Re-equip rod when stuck", "Unequips and equips the rod again (presses the rod "
+                                    "hotbar key twice) before recasting after something went wrong. This clears "
+                                    "a reel or line the game left stuck.")
 
 
 @dataclass
 class Profile:
     name: str = "Default"
+    revision: int = 2  # profile format; older files are upgraded on load (manager.upgrade)
     notes: str = ""
     regions: dict[str, Region] = field(default_factory=lambda: copy.deepcopy(DEFAULT_REGIONS))
     detection: DetectionConfig = field(default_factory=DetectionConfig)
@@ -556,6 +568,8 @@ class LibraryConfig:
     favourites: list[str] = field(default_factory=list)
     recent: list[str] = field(default_factory=list)       # most recent first
     skins: dict[str, list[str]] = field(default_factory=dict)  # rod -> skins the user added
+    rod_pictures: bool = opt(True, "Rod pictures from the Fisch wiki", "Downloads each rod's picture from "
+                             "fischipedia.org once and keeps it in the data folder. Only rod names are sent.")
 
 
 @dataclass

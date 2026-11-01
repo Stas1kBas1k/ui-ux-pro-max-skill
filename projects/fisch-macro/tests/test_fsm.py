@@ -118,7 +118,7 @@ def test_reel_outcome_from_progress(final, expected):
     fsm, _, inputs, events = make_fsm()
     t = _to_reeling(fsm)
     t = drive(fsm, obs(reel=(0.7, 0.4, 0.6), progress=final), t, t + 1.0)
-    t = drive(fsm, obs(), t, t + 1.0)
+    t = drive(fsm, obs(), t, t + 0.6)  # reel gone 0.35 s -> result; the recast follows 0.5 s later
     assert fsm.state == State.CATCH_CONFIRMED
     assert not inputs.is_held()
     cycles = [d for k, _, d in events if k == "cycle"]
@@ -275,3 +275,45 @@ def test_normal_cast_mode_is_short_and_jittered():
         holds.append([d["held"] for k, _, d in events if k == "cast"][0])
     assert all(0.22 <= h <= 0.40 for h in holds)
     assert max(holds) - min(holds) > 0.02  # not machine-regular
+
+
+def _rod_key_presses(backend):
+    return [e for e in backend.events if e == ("key_down", "1")]
+
+
+def test_frozen_reel_is_cleared_by_reequipping_the_rod():
+    """The game sometimes leaves the reel on screen with nothing moving: the rod is unequipped and equipped
+    again (rod hotbar key twice), then cast again."""
+    fsm, backend, _, events = make_fsm()
+    t = _to_reeling(fsm)
+    backend.events.clear()
+    t = drive(fsm, obs(reel=(0.5, 0.4, 0.6), progress=0.4), t, t + 6.5)  # frozen: identical for 6.5 s
+    assert fsm.state == State.RECOVERY and fsm.ctx.reason == "reel stuck"
+    t = drive(fsm, obs(reel=(0.5, 0.4, 0.6), progress=0.4), t, t + 1.0)  # still on screen: not resynced to it
+    assert fsm.state == State.RECOVERY
+    assert len(_rod_key_presses(backend)) == 2
+    assert any(k == "recovery" and "re-equipped" in m for k, m, _ in events)
+    t = drive(fsm, obs(), t, t + 2.0)
+    assert fsm.state in (State.CASTING, State.WAITING_FOR_BITE)
+
+
+def test_a_moving_reel_or_an_unseen_one_is_never_cancelled():
+    fsm, backend, _, _ = make_fsm()
+    t = _to_reeling(fsm)
+    x = 0.5
+    for i in range(400):  # 10 s of a fish that moves
+        x = 0.5 + 0.2 * ((i // 20) % 2)
+        fsm.update(obs(reel=(x, 0.4, 0.6), progress=0.4), t)
+        t += 0.025
+    assert fsm.state == State.REELING
+    t = drive(fsm, obs(reel=(None, 0.4, 0.6)), t, t + 8.0)  # fish not seen: not called stuck
+    assert fsm.ctx.reason != "reel stuck" and not _rod_key_presses(backend)
+
+
+def test_shake_that_stops_without_a_reel_recasts():
+    fsm, backend, _, _ = make_fsm()
+    t = _to_waiting(fsm)
+    t = drive(fsm, obs(shake=[(0.5, 0.5)]), t, t + 0.5)
+    assert fsm.state == State.SHAKE
+    t = drive(fsm, obs(), t, t + 6.5)  # no button, no reel
+    assert fsm.state == State.RECOVERY and fsm.ctx.reason == "shake stuck"

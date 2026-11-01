@@ -89,6 +89,9 @@ class VisionEngine:
         from fischmacro.vision.lullaby_gauge import LullabyGauge
         self.lullaby_gauge = LullabyGauge()
         self.verify_shake = True  # read the word before a shake click (off in the simulator: no real text)
+        # Lullaby: the old lit-colour reader is only for the test game. On the real game it clicked on the red
+        # part when the gauge was not found, so there nothing is clicked until the gauge is found.
+        self.lullaby_fallback = True
 
     def regions_for(self, state: str) -> tuple[str, ...]:
         return STATE_REGIONS.get(state, ALL_DETECTORS)
@@ -186,7 +189,7 @@ class VisionEngine:
             elif mcfg.kind == "lullaby" and (rr := region("reel")) and \
                     (g := self._lullaby_gauge(frame, rr)).present:
                 obs.timing = g
-            elif mcfg.kind == "lullaby":
+            elif mcfg.kind == "lullaby" and self.lullaby_fallback:
                 mcrop = frame.crop(r)
                 obs.timing = mg.detect_timing(mcrop, mcfg.pointer_color, mcfg.pointer_tolerance,
                                               mcfg.lit_color, mcfg.lit_tolerance, mcfg.axis)
