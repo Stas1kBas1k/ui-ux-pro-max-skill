@@ -17,6 +17,9 @@ def frozen_app(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "executable", str(app / "FischMacro.exe"))
     monkeypatch.setattr(paths, "_CHOSEN", None)
     monkeypatch.setattr(paths, "NOTE", [])
+    # never look at this machine's real drives (the Windows CI runner has a D: and keeps temp files on C:)
+    monkeypatch.setattr(paths, "_other_fixed_drives", lambda: [])
+    monkeypatch.setattr(paths, "_system_drive", lambda: tmp_path / "Csystem")
     return app
 
 
