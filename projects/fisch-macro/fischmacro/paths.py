@@ -28,11 +28,45 @@ def _portable_dir() -> Path | None:
     if not getattr(sys, "frozen", False):
         return None
     exe_dir = Path(sys.executable).resolve().parent
-    candidates = [exe_dir / "data", exe_dir.parent / "FischMacro-data", Path(exe_dir.anchor) / "FischMacro-data"]
-    for base in dict.fromkeys(candidates):  # same order, no repeats
+    if _writable(exe_dir / "data"):
+        return exe_dir / "data"
+    # The app's own folder is blocked (player's log: the app was in Music on drive C, which Windows' ransomware
+    # protection guards, reported as "WinError 2"). When the app is on the system drive, another fixed drive
+    # (D:) is tried before anything else on drive C.
+    near = [exe_dir.parent / "FischMacro-data", Path(exe_dir.anchor) / "FischMacro-data"]
+    if _same_drive(exe_dir, _system_drive()):
+        near = [d / "FischMacro-data" for d in _other_fixed_drives()] + near
+    for base in dict.fromkeys(near):  # same order, no repeats
         if _writable(base):
             return base
     return None
+
+
+def _system_drive() -> Path:
+    return Path((os.environ.get("SystemDrive") or "C:") + "\\")
+
+
+def _same_drive(a: Path, b: Path) -> bool:
+    return a.anchor.lower() == b.anchor.lower()
+
+
+def _other_fixed_drives() -> list[Path]:
+    """Fixed (internal) drives other than the system drive, e.g. D:\\. Windows only."""
+    if sys.platform != "win32":
+        return []
+    try:
+        import ctypes
+        import string
+        mask = ctypes.windll.kernel32.GetLogicalDrives()
+        system = _system_drive().anchor.lower()
+        out = []
+        for i, letter in enumerate(string.ascii_uppercase):
+            root = f"{letter}:\\"
+            if mask >> i & 1 and root.lower() != system and ctypes.windll.kernel32.GetDriveTypeW(root) == 3:
+                out.append(Path(root))
+        return out
+    except Exception:  # noqa: BLE001
+        return []
 
 
 _CHOSEN: Path | None = None
@@ -62,14 +96,21 @@ def _user_folder() -> Path:
 
 
 def _move_old_user_folder(base: Path) -> None:
-    """Older versions (or a run where the app's folder could not be written) kept everything in
-    %APPDATA%\\FischMacro on drive C. Bring it over to the portable folder - profiles, settings, statistics and
-    logs the new folder does not have yet - and then remove it from drive C."""
+    """Older versions, or a run where the app's folder could not be written, kept everything in
+    %APPDATA%\\FischMacro or a FischMacro-data folder (e.g. C:\\FischMacro-data). Bring it over to the folder in use
+    - profiles, settings, statistics and logs it does not have yet - and then remove the old folder."""
     if sys.platform != "win32":
         return
-    old = _user_folder()
+    exe_dir = Path(sys.executable).resolve().parent
+    olds = [_user_folder(), exe_dir / "data", exe_dir.parent / "FischMacro-data",
+            Path(exe_dir.anchor) / "FischMacro-data", _system_drive() / "FischMacro-data"]
+    for old in dict.fromkeys(olds):
+        _move_folder(old, base)
+
+
+def _move_folder(old: Path, base: Path) -> None:
     try:
-        if not old.is_dir() or old.resolve() == base.resolve():
+        if not old.is_dir() or old.resolve() == base.resolve() or base.resolve().is_relative_to(old.resolve()):
             return
         import shutil
         for item in old.rglob("*"):

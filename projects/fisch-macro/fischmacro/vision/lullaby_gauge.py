@@ -39,6 +39,7 @@ class LullabyGauge:
         self.history = history
         self.background = background  # search for the gauge in a worker thread (the app); tests search inline
         self._job = None
+        self._candidate = None  # background: the last search's result, waiting for a second one to agree
         self.offset: tuple[float, float] | None = None  # where the moon really is, relative to the estimate
         self.reset()
 
@@ -63,7 +64,9 @@ class LullabyGauge:
     # The ring's radius is about 12.7% of the game's height (recording: 137 px at 1080p; Roblox scales its UI
     # with the height). Rings of other sizes are look-alikes: around the pendulum, a frame 16 of the recording
     # had one at 81 px that scored higher than the real ring.
-    R_MIN, R_MAX = 0.10, 0.17
+    # Floor raised from 0.10: in the player's fourth log a ring of 109 px around a point 60 px below the gauge
+    # (on the Hollowed Harp reel bar) was taken for the gauge. Real rings: 137 px (default), 134-164 (Hollowed Harp).
+    R_MIN, R_MAX = 0.115, 0.17
 
     def _find_radius(self, gray: np.ndarray, rmin: int) -> int | None:
         scale = rmin / 0.07 if rmin else 0
@@ -132,8 +135,17 @@ class LullabyGauge:
             except Exception:  # noqa: BLE001 - a failed search is just "not found"
                 found = None
             if found is not None:
-                self.offset, self.light = found
-                return True
+                # the gauge can still be appearing when the reel starts: take a centre only when two searches on
+                # different frames agree (one wrong lock used to stay for the whole catch)
+                prev = self._candidate
+                self._candidate = found
+                if prev is not None and prev[1] == found[1] and \
+                        max(abs(prev[0][0] - found[0][0]), abs(prev[0][1] - found[0][1])) <= 0.006 * scale:
+                    self.offset, self.light = found
+                    self._candidate = None
+                    return True
+            else:
+                self._candidate = None
         m = rmax + int(0.13 * scale)  # the search looks up to about 0.1 x height away
         x0, y0 = int(max(0, centre[0] - m)), int(max(0, centre[1] - m))
         crop = img[y0:int(centre[1] + m), x0:int(centre[0] + m)].copy()
@@ -150,7 +162,15 @@ class LullabyGauge:
         default = (self.lo, self.hi) == (self.LO, self.HI)
         lights = (self.HI, self.LIGHT) if default else (self.hi,)
         for light in lights:
-            raw, best_d = self._purity_search(g, centre, scale, rmax, light)
+            if light == self.HI or not default:
+                raw, best_d = self._purity_search(g, centre, scale, rmax, light)
+            else:
+                # the looser test also likes the reel bar (dark with white edges): look only near the spot where
+                # the gauge sits (Hollowed Harp: +0,+13 px at 1080p) and never far from it
+                raw, best_d = self._purity_search(g, centre, scale, rmax, light,
+                                                  stages=((0.008 * scale, 4, False), (0.002 * scale, 2, True)))
+                if abs(best_d[0]) > 0.025 * scale or abs(best_d[1]) > 0.035 * scale:
+                    continue
             near = max(abs(best_d[0]), abs(best_d[1])) <= 0.048 * scale
             self.last_score, self.last_best = round(raw, 3), best_d
             # the real gauge scores ~0.97 (pale skin copy 0.99); ring-like shapes elsewhere reach ~0.78 (test
@@ -161,10 +181,12 @@ class LullabyGauge:
                     # centre (its thick ring stays "clean" 10-20 px either way); its two sharp edges do
                     best_d = self._edge_refine(g, centre, best_d, scale, rmax)
                     self.last_best = best_d
+                    if abs(best_d[0]) > 0.025 * scale or abs(best_d[1]) > 0.035 * scale:
+                        continue
                 return best_d, light
         return None
 
-    def _purity_search(self, g, centre, scale, rmax, hi) -> tuple[float, tuple[float, float]]:
+    def _purity_search(self, g, centre, scale, rmax, hi, stages=None) -> tuple[float, tuple[float, float]]:
         lo = self.lo
         r_hi = int(self.R_MAX * scale)
         k = 2  # scored at half the radius samples and a quarter of the angles: ~10x cheaper, same peak
@@ -182,7 +204,8 @@ class LullabyGauge:
 
         best_d, raw = (0.0, 0.0), 0.0
         # coarse search about +-100 px at 1080p (other screens / UI scales), then finer, then full resolution
-        for step, span, full in ((0.016 * scale, 6, False), (0.004 * scale, 3, False), (0.002 * scale, 2, True)):
+        for step, span, full in stages or ((0.016 * scale, 6, False), (0.004 * scale, 3, False),
+                                           (0.002 * scale, 2, True)):
             cx, cy = best_d
             best = -1.0
             for i in range(-span, span + 1):

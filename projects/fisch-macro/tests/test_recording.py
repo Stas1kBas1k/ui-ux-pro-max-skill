@@ -314,3 +314,40 @@ def test_gauge_search_in_background_never_blocks_a_frame():
         time.sleep(0.01)
     assert g.offset is not None and abs(g.offset[1] - 13) <= 4
     assert worst < 0.05, f"a frame waited {worst:.3f} s for the search"
+
+
+def test_hollowed_harp_search_stays_on_the_gauge():
+    """Player's fourth log: the looser search locked 60 px below the gauge (radius 109, on the reel bar) and kept
+    it. With the pendulum anywhere, or the gauge half faded in, it now finds the gauge or nothing."""
+    from fischmacro.vision.lullaby_gauge import LullabyGauge
+    base = _hollowed_harp_frame()
+    blur = cv2.GaussianBlur(base, (0, 0), 25)
+    frames = [cv2.addWeighted(base, a, blur, 1 - a, 0) for a in (0.3, 0.5, 0.7)]
+    for ang in range(10, 175, 20):
+        img = base.copy()
+        th = np.radians(ang)
+        cv2.line(img, (960, 915), (int(960 - 150 * np.cos(th)), int(915 - 150 * np.sin(th))), (235, 235, 235), 9)
+        frames.append(img)
+    for img in frames:
+        g = LullabyGauge()
+        g._locate(img, (960, 902), 1080, 259)
+        assert g.offset is None or (abs(g.offset[0]) <= 5 and abs(g.offset[1] - 13) <= 5), g.offset
+
+
+def test_background_search_needs_two_agreeing_results():
+    import time
+    from fischmacro.vision.lullaby_gauge import LullabyGauge
+    g = LullabyGauge(background=True)
+    img = _hollowed_harp_frame()
+    searches = []
+    real = g._search
+
+    def counting(*a):
+        searches.append(1)
+        return real(*a)
+    g._search = counting
+    deadline = time.monotonic() + 10
+    while g.offset is None and time.monotonic() < deadline:
+        g.update(img, (960, 902), 1080)
+        time.sleep(0.01)
+    assert g.offset is not None and len(searches) >= 2

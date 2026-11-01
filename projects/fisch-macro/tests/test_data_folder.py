@@ -56,3 +56,30 @@ def test_old_data_on_drive_c_is_moved_without_overwriting_newer_files(frozen_app
     assert (d / "settings.json").read_text() == "old settings"
     assert not old.exists(), "nothing is left on drive C"
     assert "moved the old data" in paths.describe_location()
+
+
+def test_app_on_drive_c_with_a_blocked_folder_keeps_data_on_another_drive(frozen_app, tmp_path, monkeypatch):
+    """Player's fourth log: the app was in C:\\Users\\...\\Music (Windows blocks writes there, "WinError 2"), so
+    data went to C:\\FischMacro-data. Now another fixed drive comes first, and C:\\FischMacro-data is moved there."""
+    d_drive = tmp_path / "Ddrive"
+    d_drive.mkdir()
+    c_root = tmp_path / "Croot"
+    (c_root / "FischMacro-data" / "profiles").mkdir(parents=True)
+    (c_root / "FischMacro-data" / "profiles" / "Lullaby - Hollowed Harp.json").write_text("harp")
+    real = paths._writable
+
+    def writable(base):
+        if base.name == "data":
+            paths.NOTE.append(f"cannot write to {base}: [WinError 2]")
+            return False
+        return real(base)
+    monkeypatch.setattr(paths, "_writable", writable)
+    monkeypatch.setattr(paths, "_same_drive", lambda a, b: True)
+    monkeypatch.setattr(paths, "_other_fixed_drives", lambda: [d_drive])
+    monkeypatch.setattr(paths, "_system_drive", lambda: c_root)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "nothing-here"))
+    monkeypatch.setattr(sys, "platform", "win32")
+    d = paths.data_dir()
+    assert d == d_drive / "FischMacro-data"
+    assert (d / "profiles" / "Lullaby - Hollowed Harp.json").read_text() == "harp"
+    assert not (c_root / "FischMacro-data").exists()

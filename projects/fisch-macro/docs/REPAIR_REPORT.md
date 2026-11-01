@@ -469,3 +469,30 @@ Other changes:
   `test_gauge_search_in_background_never_blocks_a_frame`, and `tests/test_data_folder.py`.
 * **Not checked:** clicking in the live game. The fixture is a gauge-only crop of the player's screenshot; their
   name and stats are not in it.
+
+## 20. Hollowed Harp locked 60 px off; the app was on drive C (player's fourth log)
+
+* **The log:**
+  * The metronome was seen in 71-87% of frames, but at a centre 56-114 px below the gauge (radius 109 px). The
+    clicks were aimed with that wrong centre: 8 passes got 2 clicks, and most fish escaped.
+  * Data folder: the app was in `C:\Users\...\Music\CLAUDE MACRO`. Windows' ransomware protection blocks writes
+    in Music (shown as "WinError 2"), so data went to `C:\FischMacro-data`.
+* **Cause:**
+  * The looser Hollowed Harp test also scores the reel bar (dark with white edges) as a ring. It searched as far
+    out as the strict one (about 100 px) and down to radius 108 px.
+  * One search right as the reel started was kept for the whole catch. The newest screenshot from the log still
+    gives the right centre (+0,+13).
+* **Fix:**
+  * The looser test searches only near the gauge's spot (within 27 px across, 38 px up or down at 1080p),
+    including after the edge refinement.
+  * Smallest ring radius raised from 10% to 11.5% of the height (real rings: 137 px; 134-164 px).
+  * In the app, a centre is used only when two searches on different frames agree within 6 px.
+  * When the app is on the system drive and its own folder is blocked, `FischMacro-data` on another fixed drive
+    (D:) is used before anything on drive C. Data left in `C:\FischMacro-data` (or `%APPDATA%`) is moved over
+    and removed.
+* **Checked:**
+  * Pendulum at 9-12 angles and the gauge faded in to 30/50/70%, on the fixture and all 4 screenshots: the gauge
+    is found at the true centre or not at all. A gauge moved 20 px is followed; one moved 40-90 px is rejected.
+  * The default Lullaby recording reads as before.
+  * Tests: `test_hollowed_harp_search_stays_on_the_gauge`, `test_background_search_needs_two_agreeing_results`,
+    `test_app_on_drive_c_with_a_blocked_folder_keeps_data_on_another_drive`.
