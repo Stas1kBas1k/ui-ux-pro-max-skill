@@ -247,3 +247,14 @@ def test_something_that_was_already_there_before_the_cast_is_not_a_reel():
     seen = [v.process(Frame(img, (W, H), timestamp=i * 0.05), None, st).reel.ui_present
             for i, (img, st) in enumerate([(idle, "CASTING"), (idle, "WAITING_FOR_BITE"), (reel, "SHAKE")])]
     assert seen == [False, False, True]  # a real reel appearing after the cast is seen at once
+
+
+def test_lullaby_gauge_recovers_from_a_wrong_centre():
+    """A centre locked onto the wrong spot used to stay for the whole session (player's log: the metronome found
+    in 0% and 11% of two catches after 74% earlier). Without a ring there it is dropped and searched again."""
+    from fischmacro.vision.lullaby_gauge import LullabyGauge
+    g = LullabyGauge()
+    g.offset = (150.0, 80.0)  # a wrong lock
+    found = [g.update(img, (960, 902), H).present for img in _lullaby_frames()]
+    assert g.offset is not None and abs(g.offset[0]) < 60 and abs(g.offset[1]) < 60
+    assert sum(found) > 20 and any(found[-10:])

@@ -39,6 +39,8 @@ class LullabyGauge:
     def reset(self) -> None:
         self.radius: int | None = None
         self.lo, self.hi = self.LO, self.HI
+        self.lost = getattr(self, "lost", 0) + 1  # resets in a row without finding the ring again
+        self.radius_fails = 0
         self.ring_hist: deque[np.ndarray] = deque(maxlen=self.history)
         self.fan_hist: deque[np.ndarray] = deque(maxlen=self.history)
         self.misses = 0
@@ -47,8 +49,14 @@ class LullabyGauge:
         pol = cv2.warpPolar(img, (rmax, 2 * ANGLES), centre, rmax, cv2.WARP_POLAR_LINEAR)
         return pol[ANGLES:]  # angles 180..360 deg: left -> top -> right (image y points down)
 
+    # The ring's radius is about 12.7% of the game's height (recording: 137 px at 1080p; Roblox scales its UI
+    # with the height). Rings of other sizes are look-alikes: around the pendulum, a frame 16 of the recording
+    # had one at 81 px that scored higher than the real ring.
+    R_MIN, R_MAX = 0.10, 0.17
+
     def _find_radius(self, gray: np.ndarray, rmin: int) -> int | None:
-        r, score = self._ring(gray, rmin, self.lo, self.hi)
+        scale = rmin / 0.07 if rmin else 0
+        r, score = self._ring(gray, max(rmin, int(self.R_MIN * scale)), self.lo, self.hi, int(self.R_MAX * scale))
         # with a skin's own levels anything two-toned scores higher, so the real ring must be very clean
         # (recoloured recording: ~0.97; ring-like shapes in the test game: ~0.8)
         need = 0.75 if (self.lo, self.hi) == (self.LO, self.HI) else 0.95
@@ -67,10 +75,11 @@ class LullabyGauge:
         return lo, hi
 
     @staticmethod
-    def _ring(gray: np.ndarray, rmin: int, lo: int = 55, hi: int = 195) -> tuple[int | None, float]:
+    def _ring(gray: np.ndarray, rmin: int, lo: int = 55, hi: int = 195, rmax: int | None = None
+              ) -> tuple[int | None, float]:
         """The radius whose band is all very dark or very light (the ring), and how clean it is."""
         best, best_r = 0.0, None
-        for r in range(rmin, gray.shape[1] - 4, 2):
+        for r in range(rmin, min(gray.shape[1] - 4, rmax or 10 ** 6), 2):
             band = gray[:, r - 2:r + 3]
             dark, light = float((band < lo).mean()), float((band > hi).mean())
             share = dark + light
@@ -86,20 +95,21 @@ class LullabyGauge:
         x0, y0 = int(max(0, centre[0] - rmax)), int(max(0, centre[1] - rmax))
         self.lo, self.hi = self.levels(g[y0:int(centre[1]) + 1, x0:int(centre[0] + rmax)])  # the half-moon area
         lo, hi = self.lo, self.hi
+        r_hi = int(self.R_MAX * scale)
         k = 2  # scored at half the radius samples and a quarter of the angles: ~10x cheaper, same peak
-        rmin = int(0.07 * scale) // k
+        rmin = int(self.R_MIN * scale) // k
         n = ANGLES // 4
 
         def score(dx: float, dy: float, full: bool) -> float:
             if full:
                 pol = cv2.warpPolar(g, (rmax, 2 * ANGLES), (centre[0] + dx, centre[1] + dy), rmax,
                                     cv2.WARP_POLAR_LINEAR)[ANGLES:]
-                return self._ring(pol, rmin * k, lo, hi)[1]
+                return self._ring(pol, rmin * k, lo, hi, r_hi)[1]
             pol = cv2.warpPolar(g, (rmax // k, 2 * n), (centre[0] + dx, centre[1] + dy), rmax,
                                 cv2.WARP_POLAR_LINEAR)[n:]
-            return self._ring(pol, max(3, rmin), lo, hi)[1]
+            return self._ring(pol, max(3, rmin), lo, hi, r_hi // k)[1]
 
-        best_d = (0.0, 0.0)
+        best_d, raw = (0.0, 0.0), 0.0
         # coarse (about +-50 px at 1080p), then finer, both cheap; then a last look at full resolution
         # coarse search about +-100 px at 1080p (other screens / UI scales), then finer, then full resolution
         for step, span, full in ((0.016 * scale, 6, False), (0.004 * scale, 3, False), (0.002 * scale, 2, True)):
@@ -109,11 +119,15 @@ class LullabyGauge:
                 for j in range(-span, span + 1):
                     d = (cx + i * step, cy + j * step)
                     sc = score(*d, full)
-                    if sc > best + 1e-6:
-                        best, best_d = sc, d
+                    # equal rings: the one nearer the expected spot wins
+                    sc_n = sc - 0.02 * (abs(d[0]) + abs(d[1])) / (0.1 * scale)
+                    if sc_n > best + 1e-6:
+                        best, best_d, raw = sc_n, d, sc
         # the real gauge scores ~0.97 (pale skin copy 0.99); ring-like shapes elsewhere reach ~0.78 (test game)
         # further out, more look-alikes: beyond the first +-50 px (1080p) the ring must be very clean
         near = max(abs(best_d[0]), abs(best_d[1])) <= 0.048 * scale
+        best = raw  # the ring's own score decides acceptance
+        self.last_score, self.last_best = round(best, 3), best_d
         if best >= (0.9 if (lo, hi) == (self.LO, self.HI) and near else 0.95):
             self.offset = best_d
 
@@ -136,7 +150,12 @@ class LullabyGauge:
             self.lo, self.hi = self.levels(gray[:, : int(0.6 * gray.shape[1])])  # this gauge's own dark / light
             self.radius = self._find_radius(gray, int(0.07 * scale))
             if self.radius is None:
+                self.radius_fails = getattr(self, "radius_fails", 0) + 1
+                if self.offset is not None and self.radius_fails > 15:
+                    self.offset = None  # the remembered centre no longer shows a ring: search again
+                    self.radius_fails = 0
                 return res
+            self.radius_fails = 0
         r = self.radius
         ring = gray[:, r - 3:r + 4].mean(axis=1)
         # still a gauge here? a ring is mostly very dark or very light
@@ -144,8 +163,11 @@ class LullabyGauge:
             self.misses += 1
             if self.misses > 10:
                 self.reset()
+                if self.lost >= 2:
+                    self.offset = None  # lost twice at this centre (a wrong lock, or the game moved): search again
             return res
         self.misses = 0
+        self.lost = 0
         self.ring_hist.append(ring)
         # the pendulum is the one long moving thing: compare the whole fan (centre to past the ring) with its
         # median over the last frames, where the pendulum is somewhere else each time
@@ -166,6 +188,13 @@ class LullabyGauge:
         res.segments = _runs_of(lit)
         res.confidence = float(min(1.0, change[a] / 0.5))
         return res
+
+
+def describe(g: "LullabyGauge") -> str:
+    """One line for the log: where the gauge reader is looking."""
+    off = "none" if g.offset is None else f"{g.offset[0]:+.0f},{g.offset[1]:+.0f} px"
+    return (f"centre offset {off}, ring radius {g.radius}, levels {g.lo}/{g.hi}, last search score "
+            f"{getattr(g, 'last_score', '-')}")
 
 
 def _runs_of(mask: np.ndarray) -> list[tuple[float, float]]:

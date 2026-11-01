@@ -418,3 +418,21 @@ Other changes:
   Each catch now also logs the number of passes over lit parts, to tell whether passes are skipped or the lit
   parts are misread on the Hollowed Harp skin.
 * **Log:** state changes (casting, shaking, reeling) are now written to the log, a few lines per catch.
+
+## 18. Lullaby metronome found in 0-11% of frames (player's second log)
+
+* **The log:** with the last build, Start worked every time (cast, bite, reel). But the metronome was found in only
+  0% and 11% of two catches, against 74% on the build before.
+* **Cause:** the wider centre search added in section 16 could lock onto a look-alike ring and keep it for the
+  whole session. On the recording, a search started on frame 16 locked 71 px off, at a ring of radius 81 px that
+  scored 0.984, higher than the real ring (0.975).
+* **Fix:**
+  * Rings must have the real gauge's size: radius 10-17% of the game's height (the real one is 12.7%; Roblox
+    scales its UI with the height).
+  * Among equal rings, the one nearer the expected spot wins.
+  * A remembered centre that stops showing a ring is dropped and searched again.
+* **Checked:** searches started on frames 0, 8, 16, 24 and 30 of the recording now all land within 20 px of the
+  true centre (pale skin too). Test: `test_lullaby_gauge_recovers_from_a_wrong_centre`.
+* **Diagnostics:**
+  * When the metronome is hardly found during a catch, a snapshot is saved once per run.
+  * The log shows where the reader is looking: centre offset, ring radius, levels, search score.

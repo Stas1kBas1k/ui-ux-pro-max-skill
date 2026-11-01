@@ -284,6 +284,7 @@ class AutomationEngine:
             self._setup_at_start = (copy.deepcopy(self.profile.detection), copy.deepcopy(self.profile.regions))
             self._adapted = False
             self._healed = False
+            self._lull_snap = False
             self.fsm.start(time.monotonic())
             self._status = Status.RUNNING
         self._stage("input enabled", self.inputs.enabled, getattr(self.inputs.backend, "name", ""))
@@ -435,6 +436,9 @@ class AutomationEngine:
         if kind == "routine":
             self._event("info", message)
             return
+        if kind == "special" and message.startswith("Lullaby:"):
+            from fischmacro.vision.lullaby_gauge import describe
+            log.info("Lullaby gauge reader: %s", describe(self.vision.lullaby_gauge))
         if kind in ("state", "shake"):
             (log.info if kind == "state" else log.debug)(message)  # state changes: a few lines a catch
             if kind == "state":
@@ -598,6 +602,7 @@ class AutomationEngine:
                         self.fsm.resync(now, "focus regained")
                     self.fsm.update(obs, now)
                 self._self_heal()
+                self._lullaby_snapshot(frame, obs)
                 if self.fsm.state == State.ERROR:
                     self._snap.last_error = self.fsm.history[-1][3] if self.fsm.history else "error"
                     self._on_fsm_error(frame, obs)
@@ -952,6 +957,22 @@ class AutomationEngine:
         if changed and self.on_profile_changed:
             self.on_profile_changed("autocal", {"old_bar": before["bar"], "old_fish": before["fish"],
                                                 "new_bar": d.bar_color, "new_fish": d.fish_color})
+
+    def _lullaby_snapshot(self, frame: Frame, obs: Observation) -> None:
+        """The metronome is hardly found during a Lullaby catch: keep one picture of it (once per run), so the
+        diagnostics export shows what the reader is looking at."""
+        m = self.fsm.minigame
+        if (getattr(self, "_lull_snap", True) or self.profile.minigame.kind != "lullaby" or not frame.full
+                or self.fsm.state != State.REELING or getattr(m, "lull_frames", 0) < 60
+                or getattr(m, "lull_seen", 0) / m.lull_frames > 0.3):
+            return
+        self._lull_snap = True
+        try:
+            from fischmacro.diagnostics.snapshot import save_snapshot
+            folder = save_snapshot(frame, self.profile, obs, note="Lullaby metronome not found")
+            self._event("info", f"Lullaby metronome not found - snapshot saved for diagnostics ({folder})")
+        except Exception:  # noqa: BLE001
+            log.exception("Could not save the Lullaby snapshot")
 
     def _self_heal(self) -> None:
         """Shaking twice in a row with no reel found: the screen setup does not match this screen. Use the
