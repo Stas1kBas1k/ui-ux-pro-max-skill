@@ -389,6 +389,12 @@ class FishingStateMachine:
         self.minigame.filter_obs(obs, now)
         if obs.catch_popup.detected:
             self.cycle.catch_popup = True
+        if self.profile.minigame.kind == "lullaby":
+            m = self.minigame
+            m.lull_frames = getattr(m, "lull_frames", 0) + 1
+            if obs.timing.present and obs.timing.source == "gauge":
+                m.lull_seen = getattr(m, "lull_seen", 0) + 1
+                c.last_reel_ui = now  # the metronome is on screen: the catch is still going, whatever the bar does
         if obs.reel.ui_present:
             c.last_reel_ui = now
             if self._reel_stuck(obs, now):
@@ -476,6 +482,12 @@ class FishingStateMachine:
     def _finish_reel(self, now: float) -> None:
         self.input.mouse_up()
         self.reel.release()
+        m = self.minigame
+        if self.profile.minigame.kind == "lullaby" and getattr(m, "lull_frames", 0):
+            seen = m.lull_seen / m.lull_frames if getattr(m, "lull_seen", 0) else 0.0
+            self.emit("special", f"Lullaby: metronome seen in {seen:.0%} of {m.lull_frames} frames, {m.actions} "
+                                 "click(s)" + ("" if seen > 0.3 else " - the metronome was not found: open "
+                                               "Settings > Diagnostics > Test a rod mechanic > Lullaby gauge"))
         cfg = self.profile.reel
         p = self.cycle.last_progress
         if self.cycle.catch_popup:

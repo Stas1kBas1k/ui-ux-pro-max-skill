@@ -386,3 +386,19 @@ Other changes:
 * Rods whose minigame input the wiki does not describe are marked "needs footage" instead of guessed:
   Tranquility (4-lane rhythm), Jinglestar bell, Noiseform zones, Black Fairy, Cerebra, Silly Fun Happy,
   Remembrance.
+
+## 16. Lullaby barely clicking, Start still doing nothing sometimes
+
+* **Lullaby, the catch ending early:** with the catch-end wait shortened to 0.35 s, a flicker of the catch bar
+  could end the catch while the metronome was still playing. The macro then stopped clicking and started
+  casting. The metronome on screen now counts as the catch going on.
+* **Lullaby, the gauge not found:** on a screen where the gauge sits further from the estimate, nothing was
+  clicked. The centre search now covers about +-100 px at 1080p (was +-50). Further out it needs a very clean
+  ring, so look-alikes are not taken. On the recording the gauge is found with the estimate off by up to 90 px.
+* **Lullaby, a log line per catch:** "metronome seen in X% of N frames, K clicks". It points to the Diagnostics
+  test when the metronome was not found.
+* **Start:** Windows sometimes refuses to bring Roblox forward, and the macro then waited silently for a click
+  into the game. After its 4 tries it now clicks into the game once (upper middle, in the sky), as the player
+  would.
+* Tests: `test_lullaby_metronome_keeps_the_catch_going_and_each_catch_is_summarised` and
+  `test_roblox_that_will_not_come_forward_gets_one_click_into_it`.

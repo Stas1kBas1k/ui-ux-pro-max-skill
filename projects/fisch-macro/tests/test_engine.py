@@ -201,3 +201,32 @@ def test_old_profiles_get_their_screen_setup_repaired():
     raw["revision"] = 3
     p = upgrade(from_dict(Profile, raw), raw)
     assert not screen_setup_differs(p) and p.revision == 4
+
+
+def test_roblox_that_will_not_come_forward_gets_one_click_into_it():
+    """Windows often refuses to bring a window forward; after the tries the macro clicks into the game once, as the
+    player would, instead of waiting forever ("Start does nothing")."""
+    from fischmacro.simulation.game import SimulatedFischGame
+    from fischmacro.vision.capture import SimulationCapture
+
+    class Unfocused(SimulationCapture):
+        simulated = False
+
+        def grab(self, win, rect=None):
+            f = super().grab(win, rect)
+            f.meta["window_focused"] = False
+            return f
+
+    s = AppSettings()
+    s.capture.require_focus = True
+    backend = RecordingBackend()
+    eng = AutomationEngine(s, Profile(), source=Unfocused(SimulatedFischGame(seed=3)),
+                           inputs=InputController(backend, click_hold_ms=0))
+    try:
+        eng.start_automation()
+        assert wait_for(lambda: any(e[0] == "down" for e in backend.events), timeout=12)
+        time.sleep(1.5)
+        assert sum(e[0] == "down" for e in backend.events) == 1  # once, not a stream of clicks
+        assert any("clicked into the game" in m for _, _, m in eng.drain_events())
+    finally:
+        eng.shutdown()

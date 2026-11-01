@@ -101,7 +101,8 @@ class LullabyGauge:
 
         best_d = (0.0, 0.0)
         # coarse (about +-50 px at 1080p), then finer, both cheap; then a last look at full resolution
-        for step, span, full in ((0.012 * scale, 4, False), (0.004 * scale, 3, False), (0.002 * scale, 2, True)):
+        # coarse search about +-100 px at 1080p (other screens / UI scales), then finer, then full resolution
+        for step, span, full in ((0.016 * scale, 6, False), (0.004 * scale, 3, False), (0.002 * scale, 2, True)):
             cx, cy = best_d
             best = -1.0
             for i in range(-span, span + 1):
@@ -111,7 +112,9 @@ class LullabyGauge:
                     if sc > best + 1e-6:
                         best, best_d = sc, d
         # the real gauge scores ~0.97 (pale skin copy 0.99); ring-like shapes elsewhere reach ~0.78 (test game)
-        if best >= (0.9 if (lo, hi) == (self.LO, self.HI) else 0.95):
+        # further out, more look-alikes: beyond the first +-50 px (1080p) the ring must be very clean
+        near = max(abs(best_d[0]), abs(best_d[1])) <= 0.048 * scale
+        if best >= (0.9 if (lo, hi) == (self.LO, self.HI) and near else 0.95):
             self.offset = best_d
 
     def update(self, img: np.ndarray, centre: tuple[float, float], scale: float) -> TimingResult:

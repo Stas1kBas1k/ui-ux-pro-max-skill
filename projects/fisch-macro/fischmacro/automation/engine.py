@@ -305,6 +305,7 @@ class AutomationEngine:
     def _arm_focus(self, now: float) -> None:
         """For a few seconds after Start / Resume, keep trying to bring Roblox forward (the app window or the
         mini window can take focus back right after the first try)."""
+        self._focus_clicked = False
         self._focus_retry_until = now + 6.0
         self._next_focus_try = now + 0.6
         self._focus_tries = 0
@@ -580,6 +581,14 @@ class AutomationEngine:
                         self._next_focus_try = now + 1.2
                         if self._focus_game():
                             log.info("start: focused Roblox (try %d)", self._focus_tries)
+                    elif self._focus_tries >= 4 and not getattr(self, "_focus_clicked", False) and obs.client_size[0]:
+                        # Windows refused to bring Roblox forward (it often does when another app has focus):
+                        # click into the game once, as the player would, instead of waiting forever
+                        self._focus_clicked = True
+                        ox, oy = obs.screen_origin
+                        cw, ch = obs.client_size
+                        self.inputs.click(int(ox + cw * 0.5), int(oy + ch * 0.2))
+                        self._event("warning", "Roblox would not come to the front - clicked into the game to focus it")
                     message = ("Bringing Roblox to the front - waiting for it to be focused" if now < self._focus_retry_until else
                                "Click into Roblox - fishing waits until the game window is focused")
                 else:

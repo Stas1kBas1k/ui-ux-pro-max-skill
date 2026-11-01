@@ -317,3 +317,20 @@ def test_shake_that_stops_without_a_reel_recasts():
     assert fsm.state == State.SHAKE
     t = drive(fsm, obs(), t, t + 6.5)  # no button, no reel
     assert fsm.state == State.RECOVERY and fsm.ctx.reason == "shake stuck"
+
+
+def test_lullaby_metronome_keeps_the_catch_going_and_each_catch_is_summarised():
+    """The catch bar can flicker while the Lullaby metronome plays; the metronome on screen means the catch is
+    still on (it used to end after 0.35 s and start casting). Each catch logs how often the metronome was seen."""
+    from fischmacro.vision.minigames import TimingResult
+    p = Profile()
+    p.minigame.kind, p.minigame.keep_reeling = "lullaby", False
+    fsm, _, _, events = make_fsm(p)
+    t = _to_reeling(fsm)
+    gauge = obs()
+    gauge.timing = TimingResult(present=True, pointer=0.5, segments=[(0.0, 0.5)], source="gauge")
+    t = drive(fsm, gauge, t, t + 2.0)  # no catch bar seen, metronome on screen
+    assert fsm.state == State.REELING
+    t = drive(fsm, obs(), t, t + 0.6)  # both gone: the catch ended
+    assert fsm.state == State.CATCH_CONFIRMED
+    assert any(k == "special" and "metronome seen in" in m for k, m, _ in events)
