@@ -289,7 +289,10 @@ class MainWindow(QMainWindow):
         from fischmacro.ui.web_api import WebApi
         from fischmacro.ui.web_view import WebInterface
         self.web = WebInterface(WebApi(self.ctx, self), self)
-        self.setCentralWidget(self.web)  # the classic root is kept for the tool pages, in its own window
+        # setCentralWidget() deletes the old central widget (deferred, once the event loop runs), which
+        # would destroy the classic tool pages: take it out first, then it lives on in the tools window.
+        self.takeCentralWidget()
+        self.setCentralWidget(self.web)
         self.tools_window = QWidget(None, Qt.Window)
         self.tools_window.setWindowTitle(f"{APP_NAME} - tools")
         self.tools_window.setWindowIcon(app_icon())

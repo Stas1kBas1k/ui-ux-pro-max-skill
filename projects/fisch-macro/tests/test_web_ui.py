@@ -227,3 +227,24 @@ def test_the_page_runs_every_section_without_errors(app, ctx):
     finally:
         ctx.engine.stop_automation("test end")
         win.close()
+
+
+def test_tool_windows_survive_the_event_loop(app, ctx):
+    """Regression: the classic pages behind Add-ons / Hunts / AI assistant / Vision / Logs were deleted
+    once the event loop ran (setCentralWidget deletes the old central widget), so every tool button
+    failed with RuntimeError in the real app."""
+    from PySide6.QtCore import QCoreApplication, QEvent
+    try:
+        win = _web_window(ctx)
+    except ImportError:
+        pytest.skip("QtWebEngine is not available")
+    try:
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)  # what app.exec() does
+        for name in ("addons", "hunts", "assistant", "vision", "logs"):
+            win.web.api.call("open_panel", {"name": name})
+            assert win.tools_window.isVisible()
+        win.on_hotkey("overlay")
+        win.on_hotkey("overlay")
+        win.poll()
+    finally:
+        win.close()
