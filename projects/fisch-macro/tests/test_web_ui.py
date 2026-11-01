@@ -304,7 +304,10 @@ def test_the_interface_writes_nothing_to_disk(app, ctx):
         pytest.skip("QtWebEngine is not available")
     try:
         prof = win.web.page().profile()
-        assert prof.isOffTheRecord() and not prof.persistentStoragePath().startswith("C:")
+        assert prof.isOffTheRecord()
+        for where in (prof.persistentStoragePath(), prof.cachePath()):
+            # nothing stored (empty), or the app's own data folder - never %APPDATA% / %LOCALAPPDATA%
+            assert where == "" or "ui-engine" in where, where
         assert _pump_until(app, lambda: win.web.loaded, 30)
     finally:
         win.close()

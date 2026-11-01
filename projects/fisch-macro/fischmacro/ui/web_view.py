@@ -128,7 +128,15 @@ def memory_profile() -> QWebEngineProfile:
     global _PROFILE
     if _PROFILE is None:
         from PySide6.QtWidgets import QApplication
+        from fischmacro import paths
+        folder = str(paths.data_dir() / "ui-engine")  # next to the app (drive D), never %APPDATA% on drive C
+        for prof in (QWebEngineProfile.defaultProfile(),):  # anything that falls back to the default profile
+            prof.setPersistentStoragePath(folder)
+            prof.setCachePath(folder)
+            prof.setHttpCacheType(QWebEngineProfile.HttpCacheType.MemoryHttpCache)
         _PROFILE = QWebEngineProfile(QApplication.instance())  # no storage name = off the record
+        _PROFILE.setPersistentStoragePath(folder)
+        _PROFILE.setCachePath(folder)
         _PROFILE.setHttpCacheType(QWebEngineProfile.HttpCacheType.MemoryHttpCache)
         _PROFILE.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.NoPersistentCookies)
     return _PROFILE

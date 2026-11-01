@@ -35,6 +35,10 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(settings.logging.level, settings.logging.max_log_files)
     log = logging.getLogger("fischmacro")
 
+    import os
+    flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+    if "--disable-gpu-shader-disk-cache" not in flags:  # the engine's one disk cache (on drive C otherwise)
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (flags + " --disable-gpu-shader-disk-cache").strip()
     from PySide6.QtCore import QCoreApplication, Qt
     QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)  # required by the new interface (QtWebEngine)
     app = QApplication.instance() or QApplication(sys.argv)
