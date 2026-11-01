@@ -436,3 +436,36 @@ Other changes:
 * **Diagnostics:**
   * When the metronome is hardly found during a catch, a snapshot is saved once per run.
   * The log shows where the reader is looking: centre offset, ring radius, levels, search score.
+
+## 19. Hollowed Harp metronome missed; data on drive C (player's third log)
+
+* **The log:** with the Hollowed Harp skin, the metronome was seen in 0% of 4 of 9 catches and 17-85% of the
+  rest. When it was seen, 6-10 passes over lit parts got 3-9 clicks. Snapshots and logs were written to
+  `C:\Users\...\AppData\Roaming\FischMacro`, not next to the app. One frame took 643 ms to process.
+* **Causes (checked on the player's three auto-saved screenshots):**
+  * The Hollowed Harp's lit parts are a paler grey (brightness 167-192) than the default's near-white. The ring
+    test counted only brightness above 195 as light, so the real gauge scored 0.8 and was rejected (needs 0.9).
+  * Its ring is thicker (radius 134-164 px), and its centre is 13 px below the reel's top edge (checked by drawing
+    circles on the screenshot).
+  * The centre search ran inside the frame loop: up to 0.6 s on the player's PC, so clicks waited.
+  * A fixed 0.015 margin each side left a narrow lit part almost no window to click in.
+  * The app falls back to the Windows user folder when it cannot write next to the exe. The reason was not
+    logged.
+* **Fix:**
+  * The strict test (as before) runs first, so the default Lullaby reads exactly as before. If it finds nothing,
+    a second test counts brightness above 150 as light. The centre is then set where the ring's inner and outer
+    edges are both sharp circles.
+  * The ring test is vectorised (about 2x faster). In the app, the search runs in a worker thread. Frames take
+    about 4 ms while it runs.
+  * The click margin scales with the lit part (15% of its width, at most 0.03).
+  * Data folder: next to the exe, then the folder above it, then the root of the same drive. Only after those,
+    the Windows user folder. Old data in `%APPDATA%\FischMacro` is moved into the portable folder (files it
+    already has are not overwritten) and removed from drive C. The log and the diagnostics zip state the data
+    folder and why.
+  * `raw.png` in snapshots is now the frame as captured. Region boxes are only on `annotated.png`.
+* **Checked:** all three screenshots give centre +0,+13 px, score 0.97. On the default Lullaby recording,
+  results are the same as before. Tests: `test_hollowed_harp_gauge_is_found_at_its_true_centre`,
+  `test_hollowed_harp_pendulum_and_top_lit_part_are_read` (pointer within 0.04 of a drawn pendulum),
+  `test_gauge_search_in_background_never_blocks_a_frame`, and `tests/test_data_folder.py`.
+* **Not checked:** clicking in the live game. The fixture is a gauge-only crop of the player's screenshot; their
+  name and stats are not in it.

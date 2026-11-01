@@ -258,3 +258,59 @@ def test_lullaby_gauge_recovers_from_a_wrong_centre():
     found = [g.update(img, (960, 902), H).present for img in _lullaby_frames()]
     assert g.offset is not None and abs(g.offset[0]) < 60 and abs(g.offset[1]) < 60
     assert sum(found) > 20 and any(found[-10:])
+
+
+def _hollowed_harp_frame():
+    """The player's Hollowed Harp gauge (crop of a 1920x1080 screenshot at x 700, y 700) on a full-size frame.
+    Its true centre, checked by drawing circles on the screenshot, is (960, 915): 13 px below the reel's top."""
+    crop = cv2.imread(str(Path(__file__).parent / "fixtures" / "real" / "gauges" / "hollowed_harp_gauge.png"))
+    img = np.zeros((1080, 1920, 3), np.uint8)
+    img[700:700 + crop.shape[0], 700:700 + crop.shape[1]] = crop
+    return img
+
+
+def test_hollowed_harp_gauge_is_found_at_its_true_centre():
+    """Player's log: the Hollowed Harp gauge was found in 0% of some catches. Its lit parts are paler grey
+    (167-192) than the default's near-white, so the strict ring test scored it 0.8 and rejected it."""
+    from fischmacro.vision.lullaby_gauge import LullabyGauge
+    g = LullabyGauge()
+    g.update(_hollowed_harp_frame(), (960, 902), 1080)
+    assert g.offset is not None and g.last_score >= 0.9
+    assert abs(g.offset[0]) <= 4 and abs(g.offset[1] - 13) <= 4
+    assert g.radius is not None and 134 <= g.radius <= 164  # inside the ring's band
+
+
+def test_hollowed_harp_pendulum_and_top_lit_part_are_read():
+    from fischmacro.vision.lullaby_gauge import LullabyGauge
+    base = _hollowed_harp_frame()
+    g = LullabyGauge()
+    cx, cy = 960, 915
+    readings = []
+    for k in range(24):
+        theta = np.radians(20 + 6 * k)  # left -> over the top
+        img = base.copy()
+        tip = (int(cx - 150 * np.cos(theta)), int(cy - 150 * np.sin(theta)))
+        cv2.line(img, (cx, cy), tip, (235, 235, 235), 9)
+        r = g.update(img, (960, 902), 1080)
+        if r.present:
+            readings.append((float(np.degrees(theta)) / 180, r.pointer, r.segments))
+    assert len(readings) >= 15
+    assert all(abs(want - got) < 0.04 for want, got, _ in readings), readings
+    segs = readings[-1][2]
+    assert any(a <= 0.5 <= b for a, b in segs), segs  # the pale part at the top is a lit part
+
+
+def test_gauge_search_in_background_never_blocks_a_frame():
+    import time
+    from fischmacro.vision.lullaby_gauge import LullabyGauge
+    img = _hollowed_harp_frame()
+    g = LullabyGauge(background=True)
+    worst = 0.0
+    deadline = time.monotonic() + 10
+    while g.offset is None and time.monotonic() < deadline:
+        t = time.perf_counter()
+        g.update(img, (960, 902), 1080)
+        worst = max(worst, time.perf_counter() - t)
+        time.sleep(0.01)
+    assert g.offset is not None and abs(g.offset[1] - 13) <= 4
+    assert worst < 0.05, f"a frame waited {worst:.3f} s for the search"

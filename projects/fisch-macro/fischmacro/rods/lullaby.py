@@ -73,9 +73,10 @@ def _gauge_click(s, t, now: float, lead: float) -> None:
     pred = s._predict(t.pointer, now, lead)            # where the click will land if sent now
     pred_next = s._predict(t.pointer, now, lead + dt)  # ... if sent on the next frame
     for a, b in t.segments:
-        m = max(0.015, min(0.04, (b - a) * 0.1))
+        # a margin that never closes a narrow lit part (a fixed 0.015 left a 0.03-wide part no window at all)
+        m = min(0.03, max(0.006, (b - a) * 0.15))
         lo, hi = a + m, b - m
-        if not (lo <= pred <= hi and lo - 0.03 <= t.pointer <= hi + 0.03):
+        if not (lo <= pred <= hi and a - 0.02 <= t.pointer <= b + 0.02):
             continue
         c = (a + b) / 2
         at_middle = (pred - c) * (pred_next - c) <= 0 or abs(pred - c) <= 0.01

@@ -78,6 +78,15 @@ def annotate(frame: Frame, profile: Profile, obs: Observation | None, scale: flo
     return canvas
 
 
+def _raw(frame: Frame) -> np.ndarray:
+    cw, ch = frame.client_size
+    canvas = np.zeros((ch, cw, 3), np.uint8)
+    ox, oy = frame.origin
+    ih, iw = frame.image.shape[:2]
+    canvas[oy:oy + ih, ox:ox + iw] = frame.image[: ch - oy, : cw - ox]
+    return canvas
+
+
 def _jsonable(o):
     if isinstance(o, (np.floating, np.integer)):
         return o.item()
@@ -95,8 +104,7 @@ def save_snapshot(frame: Frame, profile: Profile, obs: Observation | None, note:
         folder = paths.diagnostics_dir() / f"snapshot-{stamp}-{i}"
         i += 1
     folder.mkdir(parents=True)
-    full = annotate(frame, profile, None)
-    cv2.imwrite(str(folder / "raw.png"), full)
+    cv2.imwrite(str(folder / "raw.png"), _raw(frame))  # as captured: the gauge readers can be re-run on it
     cv2.imwrite(str(folder / "annotated.png"), annotate(frame, profile, obs))
     report = {
         "app_version": __version__, "time": stamp, "note": note, "platform": platform.platform(),
@@ -117,7 +125,8 @@ def export_diagnostics(destination: Path, settings: dict, profile: Profile) -> P
         z.writestr("settings.json", json.dumps(settings, indent=2))
         z.writestr("profile.json", json.dumps(to_dict(profile), indent=2))
         z.writestr("system.json", json.dumps({"app_version": __version__, "platform": platform.platform(),
-                                              "python": platform.python_version()}, indent=2))
+                                              "python": platform.python_version(),
+                                              "data_folder": paths.describe_location()}, indent=2))
         snaps = sorted(paths.diagnostics_dir().glob("snapshot-*"))[-5:]
         for s in snaps:
             for f in s.iterdir():

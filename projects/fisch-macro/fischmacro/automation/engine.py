@@ -285,6 +285,8 @@ class AutomationEngine:
             self._adapted = False
             self._healed = False
             self._lull_snap = False
+            # the real game: the Lullaby gauge search runs beside the frame loop, never stalling clicks
+            self.vision.lullaby_gauge.background = not self.simulated
             self.fsm.start(time.monotonic())
             self._status = Status.RUNNING
         self._stage("input enabled", self.inputs.enabled, getattr(self.inputs.backend, "name", ""))

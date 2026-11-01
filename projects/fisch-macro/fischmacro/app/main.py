@@ -112,6 +112,8 @@ def main(argv: list[str] | None = None) -> int:
     if ctx.settings.startup.start_preview_on_launch:
         ctx.engine.start_vision()  # vision only - automation never starts on launch
     log.info("%s started (capture mode: %s)", APP_NAME, ctx.settings.capture.mode)
+    from fischmacro import paths
+    log.info("%s", paths.describe_location())
     if args.smoke_test:
         QTimer.singleShot(int(args.smoke_test * 1000), lambda: holder["win"].close())
     return app.exec()
