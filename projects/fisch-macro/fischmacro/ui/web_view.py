@@ -13,7 +13,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from fischmacro.paths import resource_path
@@ -86,7 +86,10 @@ class WebInterface(QWebEngineView):
         self.api = api
         self.bridge = Bridge(api, self)
         self.loaded = False
-        page = LocalPage(self)
+        # An in-memory profile: the interface is the app's own local files, so nothing needs to be cached or
+        # stored, and nothing is written to drive C (the default profile lives in %LOCALAPPDATA%).
+        self.web_profile = memory_profile()
+        page = LocalPage(self.web_profile, self)
         page.setBackgroundColor(QColor("#08090e"))  # no white flash while loading
         self.setPage(page)
         s = page.settings()
@@ -115,6 +118,20 @@ class WebInterface(QWebEngineView):
 
     def notify(self, title: str, text: str) -> None:
         self.bridge.notice.emit(title, text)
+
+
+_PROFILE = None
+
+
+def memory_profile() -> QWebEngineProfile:
+    """One in-memory profile for the whole app, owned by the application so it outlives every page."""
+    global _PROFILE
+    if _PROFILE is None:
+        from PySide6.QtWidgets import QApplication
+        _PROFILE = QWebEngineProfile(QApplication.instance())  # no storage name = off the record
+        _PROFILE.setHttpCacheType(QWebEngineProfile.HttpCacheType.MemoryHttpCache)
+        _PROFILE.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.NoPersistentCookies)
+    return _PROFILE
 
 
 def available() -> bool:

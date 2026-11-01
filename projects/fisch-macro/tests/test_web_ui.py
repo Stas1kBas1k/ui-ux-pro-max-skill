@@ -294,3 +294,17 @@ def test_special_rods_in_the_library_and_the_mechanic_test(api, ctx):
     from fischmacro.ui.web_api import ApiError
     with pytest.raises(ApiError):
         api.call("diagnostics.mechanic", {"kind": "nonsense"})
+
+
+def test_the_interface_writes_nothing_to_disk(app, ctx):
+    """The page uses an in-memory browser profile: no cache or storage under %LOCALAPPDATA% (drive C)."""
+    try:
+        win = _web_window(ctx)
+    except ImportError:
+        pytest.skip("QtWebEngine is not available")
+    try:
+        prof = win.web.page().profile()
+        assert prof.isOffTheRecord() and not prof.persistentStoragePath().startswith("C:")
+        assert _pump_until(app, lambda: win.web.loaded, 30)
+    finally:
+        win.close()
