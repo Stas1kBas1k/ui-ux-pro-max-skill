@@ -35,6 +35,7 @@ SETTINGS_SECTIONS = [
     ("Notifications", [("notifications", "toasts"), ("notifications", "tray_icon"),
                        ("notifications", "desktop_notifications"), ("notifications", "sound_on_error")]),
     ("Startup", [("startup", "start_minimized"), ("startup", "confirm_exit_while_running"),
+                 ("startup", "check_updates"),
                  ("appearance", "interface"), ("library", "rod_pictures")]),
 ]
 
@@ -66,6 +67,10 @@ class WebApi:
         from fischmacro.ui.rod_images import RodImages
         self.images = RodImages(paths.data_dir() / "rod_images")
         self._fetch_pictures()
+        from fischmacro import updater
+        self.updater = updater.shared()
+        if ctx.settings.startup.check_updates and self.updater.state == "idle" and not ctx.engine.simulated:
+            self.updater.check()  # one request in the background; nothing is downloaded until asked
         self._methods: dict[str, Callable] = {
             name[4:].replace("__", "."): getattr(self, name) for name in dir(self) if name.startswith("api_")}
 
@@ -140,6 +145,7 @@ class WebApi:
             "start_report": [{"stage": n, "ok": ok, "detail": d} for n, ok, d in eng.start_report],
             "calibrating": eng.autocalibrating, "test_result": self.test_result,
             "licence": licensing.current().state,
+            "update": self.updater.as_dict(),
         }
 
     # ------------------------------------------------------------------ automation
@@ -517,8 +523,30 @@ class WebApi:
         return {"state": s.state, "message": s.message, "device_id": s.device_id}
 
     def api_about(self) -> dict:
-        from fischmacro import paths
-        return {"name": APP_NAME, "version": __version__, "data_dir": str(paths.data_dir())}
+        from fischmacro import paths, updater
+        info = updater.build_info()
+        return {"name": APP_NAME, "version": __version__, "data_dir": str(paths.data_dir()),
+                "build": info.get("build", 0), "commit": str(info.get("commit", ""))[:7],
+                "update": self.updater.as_dict()}
+
+    # ------------------------------------------------------------------ updates
+    def api_update__check(self) -> dict:
+        self.updater.check()
+        return self.updater.as_dict()
+
+    def api_update__download(self) -> dict:
+        if not self.updater.download():
+            raise ApiError("There is no new build to download right now.")
+        return self.updater.as_dict()
+
+    def api_update__install(self) -> dict:
+        if self.ctx.engine.status != Status.STOPPED:
+            self.api_stop()  # never leave a held mouse button behind
+        if not self.updater.install():
+            raise ApiError(self.updater.message if self.updater.state == "error" else
+                           "Updates install only in the Windows app (FischMacro.exe).")
+        self._native("quit")
+        return self.updater.as_dict()
 
     # ------------------------------------------------------------------ helpers
     def _native(self, what: str, arg: Any = None):

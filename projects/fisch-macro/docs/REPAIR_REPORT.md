@@ -496,3 +496,35 @@ Other changes:
   * The default Lullaby recording reads as before.
   * Tests: `test_hollowed_harp_search_stays_on_the_gauge`, `test_background_search_needs_two_agreeing_results`,
     `test_app_on_drive_c_with_a_blocked_folder_keeps_data_on_another_drive`.
+
+## 21. Bar stuck at the side after the fish leaves a corner; in-app updater
+
+* **Player:** "when the fish goes to the corner it just stops tracking and keeps the bar to the side."
+* **Cause (tracker):**
+  * When the fish disappeared for a moment (at a wall the fish line can be hidden by the bar's end) and came
+    back away from the wall still moving, every new sighting was treated as a wrong reading. A far reading
+    was only believed once it repeated within 3% of the *first* far sighting. A fish swimming at about one
+    track width per second never did that until it stopped, so the input was released and the bar sat at
+    the side.
+  * Even after the fish counted as lost (0.3 s), new sightings were still checked against its old place.
+* **Fix:**
+  * A far reading is believed after 3 frames, each within 5% of the one before.
+  * After the fish was lost, the next sighting starts a new track at once.
+  * A fish resting at a wall (bar pinned, nothing moving, progress bar not read) no longer counts as a frozen
+    reel, so it no longer triggers the unequip/equip recovery.
+  * Before: at 0.7-2.4 track widths/s the fish was not followed again within 30 frames. After: within 0-2
+    frames, hidden for 0.1 s or 0.4 s. A single wrong far reading is still ignored. Tests:
+    `test_fish_that_swims_away_from_a_wall_is_followed_again`, `test_fish_resting_at_a_wall_is_not_a_frozen_reel`.
+  * The simulator can draw a fish-like decoration at a wall (`ghost_x`). With it, the closed loop still
+    follows the fish out of both corners.
+* **In-app updater (`fischmacro/updater.py`):**
+  * The app reads its build number (stamped by CI into `build_info.json`) and looks for GitHub releases tagged
+    `fischmacro-b<N>` that carry the zip and its SHA-256. It checks once at start (Settings > Startup >
+    Check for updates; Settings > About has a button).
+  * Nothing is downloaded until the player presses Download. The zip goes to `data/updates`, and its size and
+    SHA-256 are checked.
+  * Install closes the app. A PowerShell script copies the new files over the app folder (no deletions; the
+    `data` folder is never shipped or touched) and starts it again. Log: `data/updates/install.log`.
+  * Only GitHub hosts over https are contacted.
+  * **Not active yet:** publishing builds as public releases waits for the owner's go-ahead. Until then the check
+    finds nothing and the app says it is up to date.

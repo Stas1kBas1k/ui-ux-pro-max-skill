@@ -89,3 +89,47 @@ def test_noisy_detections_are_smoothed():
         if i > 20:
             errs.append(abs(tr.x - true))
     assert sum(errs) / len(errs) < 0.006
+
+
+def _reading(fx):
+    from fischmacro.vision.detectors import ReelResult
+    r = ReelResult()
+    r.ui_present = r.bar_found = True
+    r.fish_found = fx is not None
+    r.fish_x, r.fish_confidence = fx or 0.0, 1.0
+    r.bar_left, r.bar_right, r.bar_confidence = 0.7, 1.0, 1.0
+    return r
+
+
+@pytest.mark.parametrize("hidden", [6, 24])  # 0.1 s (still coasting) and 0.4 s (lost)
+@pytest.mark.parametrize("step", [0.012, 0.02, 0.04])  # 0.7-2.4 track widths per second at 60 fps
+def test_fish_that_swims_away_from_a_wall_is_followed_again(hidden, step):
+    """Player: "when the fish goes to the corner it stops tracking and keeps the bar to the side". A fish
+    hidden at the wall that reappeared away from it, still moving, was rejected as an outlier on every frame
+    (each sighting was compared with the first one) until it stopped - so the input was released and the bar
+    sat at the side."""
+    from fischmacro.automation.tracking import ReelTracker
+    tr, t, dt = ReelTracker(), 0.0, 1 / 60
+    for _ in range(60):
+        tr.update(_reading(0.98), t)
+        t += dt
+    for _ in range(hidden):
+        tr.update(_reading(None), t)
+        t += dt
+    x, back = 0.80, None
+    for i in range(30):
+        s = tr.update(_reading(x), t)
+        if back is None and s.usable and not s.coasting and abs(s.fish_x - x) < 0.03:
+            back = i
+        x, t = x - step, t + dt
+    assert back is not None and back <= 3
+
+
+def test_a_single_wrong_reading_far_away_is_still_ignored():
+    from fischmacro.automation.tracking import ReelTracker
+    tr, t = ReelTracker(), 0.0
+    for _ in range(30):
+        tr.update(_reading(0.5), t)
+        t += 1 / 60
+    s = tr.update(_reading(0.9), t)
+    assert s.coasting and abs(s.fish_x - 0.5) < 0.02

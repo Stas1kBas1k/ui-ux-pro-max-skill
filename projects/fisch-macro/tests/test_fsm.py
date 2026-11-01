@@ -334,3 +334,15 @@ def test_lullaby_metronome_keeps_the_catch_going_and_each_catch_is_summarised():
     t = drive(fsm, obs(), t, t + 0.6)  # both gone: the catch ended
     assert fsm.state == State.CATCH_CONFIRMED
     assert any(k == "special" and "metronome seen in" in m for k, m, _ in events)
+
+
+def test_fish_resting_at_a_wall_is_not_a_frozen_reel():
+    from helpers import make_fsm, obs
+    from fischmacro.automation.fsm import State
+    fsm, backend, inputs, events = make_fsm()
+    fsm.state = State.REELING
+    fsm.ctx.state_since = fsm.ctx.last_reel_ui = fsm.ctx.last_fish = 0.0
+    for i in range(int(fsm.profile.timing.stuck_seconds * 30) + 60):
+        now = i / 30
+        fsm.update(obs(reel=(0.97, 0.70, 1.0)), now)  # no progress bar read, nothing moves: pinned right
+        assert fsm.state == State.REELING, f"left reeling at {now:.1f} s"

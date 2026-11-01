@@ -14,6 +14,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: fisch-macro-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: windows-latest
@@ -35,6 +39,11 @@ jobs:
           python -m pip install --no-deps rapidocr-onnxruntime==1.2.3
       - name: Run tests
         run: python -m pytest -q
+      - name: Stamp the build number (read by the in-app updater)
+        shell: pwsh
+        run: |
+          @{ build = ${{ github.run_number }}; commit = "${{ github.sha }}" } | ConvertTo-Json | Out-File -Encoding utf8 fischmacro\build_info.json
+          Get-Content fischmacro\build_info.json
       - name: Build executable
         run: pyinstaller packaging/fischmacro.spec --noconfirm --clean
       - name: Smoke-test executable (simulation mode, exits after 6 s)

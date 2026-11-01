@@ -387,6 +387,11 @@ class MainWindow(QMainWindow):
             path, _ = QFileDialog.getSaveFileName(self, "Export profile", str(folder / str(arg or "profile.json")),
                                                   "Profiles (*.json)")
             return path or None
+        elif what == "quit":
+            # the updater waits for this process to end, then copies the new build in and starts it again
+            from PySide6.QtCore import QTimer
+            from PySide6.QtWidgets import QApplication
+            QTimer.singleShot(400, lambda: (self.close(), QApplication.instance().quit()))
         elif what == "open_file":
             path, _ = QFileDialog.getOpenFileName(self, "Import profile", str(paths.data_dir()), "Profiles (*.json)")
             return path or None

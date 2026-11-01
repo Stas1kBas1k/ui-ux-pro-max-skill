@@ -474,7 +474,8 @@ class FishingStateMachine:
         prog = obs.progress.fill if obs.progress.present else None
         sig = (round(r.fish_x, 2) if r.fish_found else None, round(r.bar_left, 2) if r.bar_found else None,
                round(prog, 2) if prog is not None else None)
-        if sig != c.reel_sig or sig[0] is None:  # stuck = the fish is seen and does not move; never cancel blind
+        at_wall = r.fish_found and (r.fish_x <= 0.08 or r.fish_x >= 0.92)  # resting at a wall is normal play
+        if sig != c.reel_sig or sig[0] is None or at_wall:  # stuck = the fish is seen and does not move; never cancel blind
             c.reel_sig, c.reel_sig_since = sig, now
             return False
         return now - c.reel_sig_since >= self.profile.timing.stuck_seconds

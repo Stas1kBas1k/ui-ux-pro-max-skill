@@ -372,6 +372,8 @@ class StartupConfig:
     start_minimized: bool = opt(False, "Start minimised")
     remember_geometry: bool = opt(True, "Remember window size and position")
     confirm_exit_while_running: bool = opt(True, "Confirm exit while automation runs")
+    check_updates: bool = opt(True, "Check for updates", "Looks for a newer build when the app starts. "
+                              "Nothing is downloaded until you press Update.")
 
 
 @dataclass

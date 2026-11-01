@@ -698,6 +698,12 @@ class SimulatedFischGame:
         bx1 = x + int((self.bar_x + self.bar_w) * rw)
         cv2.rectangle(img, (bx0, y + inset), (bx1, y + rh - inset), hex_to_bgr(c.bar_color), -1)
         fw = max(3, int(0.022 * rw))
+        ghost = getattr(self, "ghost_x", None)
+        if ghost is not None:
+            # a skin's end decoration that looks like the fish line (thin, past the track) and never moves
+            gx = x + int(ghost * rw)
+            ext = int(rh * 0.3)
+            cv2.rectangle(img, (gx - fw // 2, y - ext), (gx + fw // 2, y + rh + ext), hex_to_bgr(c.fish_color), -1)
         fx = x + int(self.fish_x * rw)
         ext = int(rh * 0.3)  # as in game, the fish line sticks out above and below the track
         cv2.rectangle(img, (fx - fw // 2, y - ext), (fx + fw // 2, y + rh + ext), hex_to_bgr(c.fish_color), -1)

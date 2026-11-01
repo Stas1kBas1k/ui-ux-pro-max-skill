@@ -54,10 +54,13 @@ class Track1D:
         r = z - pred
         gate = self.gate + abs(self.v) * dt
         if abs(r) > gate:
-            if self._jump_x is not None and abs(z - self._jump_x) < 0.03:
+            # far away: believed once it is seen on ``confirm`` frames in a row, each near the one before (a
+            # fish swimming away moves 1-3% a frame; comparing with the first sighting never confirmed it)
+            if self._jump_x is not None and abs(z - self._jump_x) < 0.05:
                 self._jump_n += 1
             else:
-                self._jump_x, self._jump_n = z, 1
+                self._jump_n = 1
+            self._jump_x = z
             if self._jump_n < self.confirm:
                 # coast instead: keep the old track for this frame
                 self.x, self.t = min(1.0, max(0.0, pred)), now
@@ -116,6 +119,10 @@ class ReelTracker:
         bar_ok = reel.bar_found and reel.bar_confidence >= min_conf and reel.bar_right > reel.bar_left
         accepted = False
         if fish_ok:
+            if self.last_fish_seen is not None and now - self.last_fish_seen > self.max_coast:
+                # the fish was lost (hidden at a wall, under an effect): where it is now is not checked
+                # against where it was - that kept a fish that swam away "an outlier" until it stopped
+                self.fish.reset()
             accepted = self.fish.update(reel.fish_x, now)
             if accepted:
                 self.last_fish_seen = now

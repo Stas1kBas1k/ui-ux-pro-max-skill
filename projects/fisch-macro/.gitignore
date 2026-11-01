@@ -3,3 +3,4 @@ dist/
 .venv/
 *.spec.bak
 .pytest_cache/
+fischmacro/build_info.json

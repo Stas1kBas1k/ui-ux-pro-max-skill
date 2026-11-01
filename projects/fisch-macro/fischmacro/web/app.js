@@ -210,7 +210,9 @@ views.dashboard = {
     else if (S.error) banner = `<div class="banner bad">${icon("alert", 18)}<div>${esc(S.error)}</div></div>`;
     else if (S.observe_only) banner = `<div class="banner info">${icon("eye", 18)}<div>Observe only is on: the macro watches and decides, but sends no input. Turn it off in Settings.</div></div>`;
     else if (S.simulated) banner = `<div class="banner info">${icon("info", 18)}<div>Test mode: the built-in test game is used and nothing is sent to Roblox.</div></div>`;
-    $("#d-banner").innerHTML = banner;
+    const ub = updateBanner(S.update);
+    if (ub && !run) banner = ub + banner;  // never offered while fishing
+    if ($("#d-banner").innerHTML !== banner) $("#d-banner").innerHTML = banner;
     const t = (title, tone, value, detail, extra = "", head = "") => `<div class="tile"><div class="tile-head"><span>${title}</span>${head}</div>
       <div class="tile-value">${toneDot(tone)}<span class="ellipsis">${esc(value)}</span></div><div class="tile-detail">${esc(detail)}</div>${extra}</div>`;
     const tr = S.tracking;
@@ -546,9 +548,47 @@ views.settings = {
     body.innerHTML = `<div class="card pad" style="max-width:640px"><div class="row"><img src="logo.svg" width="56" height="56" alt="" style="border-radius:14px">
       <div><div class="detail-title">${esc(a.name)}</div><div class="muted small">Version ${esc(a.version)}</div></div></div>
       <p class="muted" style="margin-top:16px">An external helper for Roblox Fisch: it looks at the screen and sends normal mouse and keyboard input, like a player. It never reads or changes game memory and never talks to Roblox servers.</p>
-      <dl class="kv" style="margin-top:12px"><dt>Settings and profiles</dt><dd>${esc(a.data_dir)}</dd></dl></div>`;
+      <dl class="kv" style="margin-top:12px"><dt>Build</dt><dd>${a.build ? esc(String(a.build)) + (a.commit ? " (" + esc(a.commit) + ")" : "") : "from source"}</dd>
+      <dt>Settings and profiles</dt><dd>${esc(a.data_dir)}</dd></dl>
+      <div class="row" style="margin-top:16px;gap:12px"><button class="btn btn-sm" id="upd-check" type="button">${icon("reset", 15)} Check for updates</button>
+      <span class="muted small" id="upd-msg">${esc(a.update.message || "")}</span></div>
+      <div id="upd-banner"></div></div>`;
+    const show = (u) => { $("#upd-msg").textContent = u.message || ""; $("#upd-banner").innerHTML = updateBanner(u); };
+    $("#upd-check").onclick = async () => {
+      show(await api("update.check"));
+      for (let i = 0; i < 20; i++) {  // the check runs in the background: follow it for a few seconds
+        await new Promise((ok) => setTimeout(ok, 500));
+        if (!$("#upd-msg")) return;
+        const u = (await api("about")).update;
+        show(u);
+        if (u.state !== "checking") return;
+      }
+    };
   },
 };
+
+/* ------------------------------------------------------------------ updates */
+function updateBanner(u) {
+  if (!u) return "";
+  const btn = (act, label) => `<button class="btn btn-sm" type="button" data-upd="${act}">${label}</button>`;
+  const box = (tone, text, extra = "") => `<div class="banner ${tone}">${icon("download", 18)}<div style="flex:1">${text}</div>${extra}</div>`;
+  if (u.state === "available") return box("info", `<b>Update available: build ${u.new_build}</b> (you have ${u.build || "an older build"}). ${esc(firstLine(u.notes))}`, btn("download", `Download (${u.size_mb} MB)`));
+  if (u.state === "downloading") return box("info", `Downloading build ${u.new_build}... ${Math.round(u.progress * 100)}%`);
+  if (u.state === "ready") return box("info", `<b>Build ${u.new_build} is ready.</b> The app closes, updates and opens again by itself. Your profiles and settings stay.`,
+    u.can_install ? btn("install", "Install and restart") : "");
+  if (u.state === "installing") return box("info", esc(u.message));
+  if (u.state === "error" && u.new_build) return box("warn", esc(u.message), btn("download", "Try again"));
+  return "";
+}
+function firstLine(t) { return (t || "").split("\n")[0].slice(0, 140); }
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-upd]");
+  if (!b) return;
+  b.disabled = true;
+  const r = b.dataset.upd === "install" ? await api("update.install") : await api("update.download");
+  if (r && r.message) toast(r.message);
+  refreshState();
+});
 
 /* ------------------------------------------------------------------ boot */
 function boot() {
@@ -557,7 +597,7 @@ function boot() {
   refreshState();
   bridge.stateChanged.connect((raw) => { S = JSON.parse(raw); sideStatus(); if (views[route].update) views[route].update(); });
   bridge.notice.connect((title, text) => toast(text));
-  api("about").then((a) => ($("#brand-version").textContent = `Version ${a.version}`));
+  api("about").then((a) => ($("#brand-version").textContent = `Version ${a.version}${a.build ? " · build " + a.build : ""}`));
   document.addEventListener("keydown", (e) => {
     if (e.ctrlKey && e.key >= "1" && e.key <= "5") { go(NAV[+e.key - 1][0]); e.preventDefault(); }
   });
