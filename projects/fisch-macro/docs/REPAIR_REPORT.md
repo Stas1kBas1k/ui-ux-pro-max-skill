@@ -402,3 +402,19 @@ Other changes:
   would.
 * Tests: `test_lullaby_metronome_keeps_the_catch_going_and_each_catch_is_summarised` and
   `test_roblox_that_will_not_come_forward_gets_one_click_into_it`.
+
+## 17. From the player's diagnostics (log + screenshot)
+
+* **Cause found:** the bait text under the player ("Current Bait: ... / Increases Resilience by ...") sits exactly
+  where the catch bar appears.
+  * It was read as a reel, so the cast was skipped. The log shows a Stellarwave start jumping to reeling 0.04 s
+    after Start, with no cast.
+  * Reels seemed to start and end on their own ("Fish escaped" three times with no cast in between).
+* **Fix:**
+  * While casting, the reel area is remembered. Before the reel, anything unchanged since then is not a reel.
+  * A fish or bar outside the track is rejected; Stellarwave's wider strip has its own limits.
+  * Test: `test_something_that_was_already_there_before_the_cast_is_not_a_reel`.
+* **Lullaby on the player's PC:** the metronome was seen in 74% of frames, but only 8 clicks were sent in 15 s.
+  Each catch now also logs the number of passes over lit parts, to tell whether passes are skipped or the lit
+  parts are misread on the Hollowed Harp skin.
+* **Log:** state changes (casting, shaking, reeling) are now written to the log, a few lines per catch.

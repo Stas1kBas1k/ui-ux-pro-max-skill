@@ -485,8 +485,8 @@ class FishingStateMachine:
         m = self.minigame
         if self.profile.minigame.kind == "lullaby" and getattr(m, "lull_frames", 0):
             seen = m.lull_seen / m.lull_frames if getattr(m, "lull_seen", 0) else 0.0
-            self.emit("special", f"Lullaby: metronome seen in {seen:.0%} of {m.lull_frames} frames, {m.actions} "
-                                 "click(s)" + ("" if seen > 0.3 else " - the metronome was not found: open "
+            self.emit("special", f"Lullaby: metronome seen in {seen:.0%} of {m.lull_frames} frames, "
+                                 f"{getattr(m, 'lull_passes', 0)} pass(es) over lit parts, {m.actions} click(s)" + ("" if seen > 0.3 else " - the metronome was not found: open "
                                                "Settings > Diagnostics > Test a rod mechanic > Lullaby gauge"))
         cfg = self.profile.reel
         p = self.cycle.last_progress

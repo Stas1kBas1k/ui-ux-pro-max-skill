@@ -436,7 +436,7 @@ class AutomationEngine:
             self._event("info", message)
             return
         if kind in ("state", "shake"):
-            log.debug(message)
+            (log.info if kind == "state" else log.debug)(message)  # state changes: a few lines a catch
             if kind == "state":
                 self._events.append((time.time(), kind, message))
             return

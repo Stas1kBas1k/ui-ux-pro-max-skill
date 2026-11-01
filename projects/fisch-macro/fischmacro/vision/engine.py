@@ -163,6 +163,8 @@ class VisionEngine:
                     rr = obs.reel
                     obs.reel.marks = tuple(find_marks(crop, rr.fish_x if rr.fish_found else None,
                                                       (rr.bar_left, rr.bar_right) if rr.bar_found else None))
+            self._sanity(obs, wide=cfg.reel_mode == "capsule")
+            self._reel_gate(crop, obs, state, frame.timestamp)
             checked.append("reel")
         if "progress" in wanted and (r := region("progress")):
             pcrop = frame.crop(r)
@@ -220,6 +222,44 @@ class VisionEngine:
         obs.checked = tuple(checked)
         obs.processing_ms = (time.perf_counter() - t0) * 1000
         return obs
+
+    @staticmethod
+    def _sanity(obs: "Observation", wide: bool = False) -> None:
+        """A fish or bar outside the track is not the reel (player's screenshot: the bait text read as a reel
+        with the fish at 1.17 of its width). Stellarwave's strip ("capsule") is wider than the reel region:
+        there the limits are the wide strip's (about -0.18 .. 1.18 of the reel region)."""
+        r = obs.reel
+        lo, hi = (-0.2, 1.2) if wide else (-0.02, 1.02)
+        if r.fish_found and not (lo <= r.fish_x <= hi):
+            r.fish_found = False
+        if r.bar_found and (r.bar_left < lo - 0.03 or r.bar_right > hi + 0.03 or r.bar_right <= r.bar_left):
+            r.bar_found = False
+        if r.ui_present and not (r.fish_found or r.bar_found):
+            r.ui_present = False
+
+    # Before the reel, the area it appears in holds other things that never go away: the "Current Bait: ... /
+    # Increases Resilience by ..." text under the player (player's screenshot) sits exactly there. Read as a
+    # reel, that skipped the cast ("Start does nothing") and ended reels that never were. So outside the reel the
+    # area is remembered while casting, and a reel only counts when the area has really changed since.
+    GATED_STATES = ("CASTING", "WAITING_FOR_BITE", "SHAKE", "CATCH_CONFIRMED")
+
+    def _reel_gate(self, crop, obs: "Observation", state: str | None, t: float) -> None:
+        if crop is None or crop.size == 0 or state is None:
+            return
+        g = cv2.resize(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop, (192, 24),
+                       interpolation=cv2.INTER_AREA).astype(np.int16)
+        ref = getattr(self, "_reel_ref", None)
+        diff = None if ref is None else np.abs(g - ref)
+        changed = None if diff is None else float((diff > 25).mean())
+        # only what is really the same as before the cast is ignored (static text: ~0 change); a reel - even a
+        # dark track on dark water in the test game - changes far more (there: 21% of pixels, average 51)
+        same = diff is not None and changed < 0.1 and float(diff.mean()) < 12
+        if state in self.GATED_STATES and same and obs.reel.ui_present:
+            obs.reel.ui_present = obs.reel.fish_found = obs.reel.bar_found = False
+            self.reel_gated = getattr(self, "reel_gated", 0) + 1
+        if state == "CASTING" or (state == "WAITING_FOR_BITE" and changed is not None and changed < 0.08
+                                  and t - getattr(self, "_reel_ref_t", -1e9) > 1.0):
+            self._reel_ref, self._reel_ref_t = g, t  # the area without the reel (follows slow HUD changes)
 
     def _zodiac(self, frame: Frame, rw: Region):
         """Stellarwave: which sign is next (lit stars in the top row) and where it is on the strip."""

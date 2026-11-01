@@ -52,6 +52,10 @@ def _gauge_click(s, t, now: float, lead: float) -> None:
     """The real half-moon: one click on every pass of the pendulum over every lit part, aimed at the middle
     of the part. A pass ends when the pendulum leaves the part or turns around (a lit part at the end of the
     swing is passed twice: out and back). No pause between clicks beyond that."""
+    inside = any(a <= t.pointer <= b for a, b in t.segments)
+    if inside and not getattr(s, "lull_in", False):
+        s.lull_passes = getattr(s, "lull_passes", 0) + 1  # for the per-catch log line: passes vs clicks
+    s.lull_in = inside
     v = s._velocity()
     # direction only from a real swing (2-5 /s); a reading that wobbles by a few thousandths is not a turn
     direction = 0 if abs(v) < 0.8 else (1 if v > 0 else -1)

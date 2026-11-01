@@ -45,7 +45,8 @@ class MinigameSolver:
         self.fired_segment: tuple[float, float] | None = None  # Lullaby: section already clicked this pass
         self.fired_dir = 0  # Lullaby: pendulum direction when it was clicked (a turn starts a new pass)
         self.special_logged = False
-        self.lull_frames = self.lull_seen = 0  # Lullaby: reeling frames, and frames with the metronome found  # rods/special.py: logged once per catch
+        self.lull_frames = self.lull_seen = self.lull_passes = 0
+        self.lull_in = False  # Lullaby: reeling frames, and frames with the metronome found  # rods/special.py: logged once per catch
         # Stellarwave state machine: AIM -> VERIFY -> (target changed: hit) AIM / (no change: miss) AIM
         self.stellar_state = "AIM"
         self.stellar_lit: int | None = None

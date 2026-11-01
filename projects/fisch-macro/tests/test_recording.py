@@ -229,3 +229,21 @@ def test_stellarwave_cursor_goes_to_the_next_sign():
     for r, s in moves:
         x = int(s[5:-1].split(",")[0])
         assert abs(x - expected[r["next"]]) < 40, f"moved to {x} for {r['next']}"
+
+
+def test_something_that_was_already_there_before_the_cast_is_not_a_reel():
+    """The bait text under the player sits where the reel appears (player's screenshot) and was read as a reel:
+    the cast was skipped ("Start does nothing"). Outside the reel, only a real change since the cast counts."""
+    from fischmacro.profiles.schema import Profile
+    from fischmacro.vision.engine import VisionEngine
+    reel = cv2.imread(str(ROOT / "t08.0.jpg"))
+    idle = cv2.imread(str(ROOT / "t03.0.jpg"))
+    v = VisionEngine(Profile())
+    seen = [v.process(Frame(img, (W, H), timestamp=i * 0.05), None, st).reel.ui_present
+            for i, (img, st) in enumerate([(reel, "CASTING"), (reel, "CASTING"), (reel, "WAITING_FOR_BITE"),
+                                           (reel, "SHAKE"), (reel, "REELING")])]
+    assert seen[1:] == [False, False, False, True]  # unchanged since the cast: not a reel; while reeling: as before
+    v = VisionEngine(Profile())
+    seen = [v.process(Frame(img, (W, H), timestamp=i * 0.05), None, st).reel.ui_present
+            for i, (img, st) in enumerate([(idle, "CASTING"), (idle, "WAITING_FOR_BITE"), (reel, "SHAKE")])]
+    assert seen == [False, False, True]  # a real reel appearing after the cast is seen at once
