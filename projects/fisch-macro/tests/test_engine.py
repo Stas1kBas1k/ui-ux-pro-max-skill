@@ -258,3 +258,39 @@ def test_three_minutes_without_a_reel_writes_a_stall_report_and_starts_over(capl
         assert any("stall report saved" in m for _, _k, m in eng.drain_events())
     finally:
         eng.shutdown()
+
+
+def test_every_reel_ends_with_a_report_line(caplog):
+    import logging
+    eng = AutomationEngine(sim_settings(), Profile())
+    try:
+        with caplog.at_level(logging.INFO):
+            assert eng.start_automation()
+            assert wait_for(lambda: eng.session.catches + eng.session.failures >= 1, timeout=40)
+            assert wait_for(lambda: any("Reel report" in r.message for r in caplog.records), timeout=10)
+        line = next(r.message for r in caplog.records if "Reel report" in r.message)
+        assert "fps" in line and "screen-to-decision" in line and "fish seen" in line and "tracked" in line
+    finally:
+        eng.shutdown()
+
+
+def test_reel_recorder_writes_frames_and_decisions(tmp_path, monkeypatch):
+    import json
+    import time as _t
+
+    import numpy as np
+
+    from fischmacro.diagnostics.reel_report import ReelRecorder
+    monkeypatch.setenv("FISCHMACRO_HOME", str(tmp_path))
+    rec = ReelRecorder()
+    rec.begin({"rod": "Stellarwave Melody"})
+    for i in range(10):
+        rec.add(np.zeros((40, 200, 3), np.uint8), {"t": i * 0.05, "fish": 0.5})
+    folder = rec.folder
+    rec.end()
+    end = _t.monotonic() + 5
+    while _t.monotonic() < end and len(list(folder.glob("*.jpg"))) < 10:
+        _t.sleep(0.05)
+    rows = [json.loads(x) for x in (folder / "frames.jsonl").read_text().splitlines()]
+    assert len(list(folder.glob("*.jpg"))) == 10 and len(rows) == 10 and rows[0]["image"] == "00001.jpg"
+    assert str(folder).startswith(str(tmp_path))

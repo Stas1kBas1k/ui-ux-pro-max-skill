@@ -431,12 +431,15 @@ class FishingStateMachine:
                 self.cycle.max_progress = max(self.cycle.max_progress, obs.progress.fill)
         mini = self.profile.minigame
         steer = mini.kind == "none" or mini.keep_reeling
+        self.steer_mode = "released"
         if obs.reel.present and obs.reel.confidence >= cfg.min_confidence and not steer:
             c.last_fish = now  # rod minigame only: the bar is left alone
+            self.steer_mode = "minigame"
         elif (ts := self.tracker.update(obs.reel, now, cfg.min_confidence)).usable and ts.bar_right > ts.bar_left:
             # steer on the tracked fish and bar: a wrong detection is ignored and a missed frame or two is
             # bridged by the prediction, instead of letting go of the bar the moment one frame is unclear
             c.last_fish = now
+            self.steer_mode = "track"
             aim = ts.fish_x
             if mini.kind == "migu" and obs.reel.marks:
                 # MiguRod: slashes land on the "!" marks and cut the bar - step the bar aside if the fish allows
@@ -464,6 +467,7 @@ class FishingStateMachine:
             # Fish is clear but the bar is not (see-through or recoloured bar): steer on the fish
             # against the last bar position we saw, like a simple pixel macro would.
             c.last_fish = now
+            self.steer_mode = "fish only"
             ref = c.bar_center if (c.bar_center is not None and now - c.bar_seen < 0.6) else 0.5
             hold = ts.fish_x > ref
             if hold:

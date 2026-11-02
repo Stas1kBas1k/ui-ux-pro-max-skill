@@ -127,6 +127,11 @@ def export_diagnostics(destination: Path, settings: dict, profile: Profile) -> P
         z.writestr("system.json", json.dumps({"app_version": __version__, "platform": platform.platform(),
                                               "python": platform.python_version(),
                                               "data_folder": paths.describe_location()}, indent=2))
+        recs = paths.data_dir() / "recordings"
+        for rec in (sorted(recs.glob("reel-*"))[-2:] if recs.is_dir() else []):
+            for f in rec.iterdir():
+                z.write(f, f"recordings/{rec.name}/{f.name}", compress_type=zipfile.ZIP_STORED
+                        if f.suffix == ".jpg" else zipfile.ZIP_DEFLATED)
         snaps = sorted(paths.diagnostics_dir().glob("snapshot-*"))[-5:]
         for s in snaps:
             for f in s.iterdir():

@@ -606,6 +606,7 @@ class AutomationEngine:
                 self._self_heal()
                 self._lullaby_snapshot(frame, obs)
                 self._stall_watch(frame, obs, now)
+                self._reel_watch(frame, obs)
                 if self.fsm.state == State.ERROR:
                     self._snap.last_error = self.fsm.history[-1][3] if self.fsm.history else "error"
                     self._on_fsm_error(frame, obs)
@@ -960,6 +961,47 @@ class AutomationEngine:
         if changed and self.on_profile_changed:
             self.on_profile_changed("autocal", {"old_bar": before["bar"], "old_fish": before["fish"],
                                                 "new_bar": d.bar_color, "new_fish": d.fish_color})
+
+    def _reel_watch(self, frame: Frame, obs: Observation) -> None:
+        """Numbers for every reel (one log line when it ends) and, when switched on, a recording of it."""
+        from fischmacro.diagnostics.reel_report import ReelRecorder, ReelReport
+        f = self.fsm
+        if f.state != State.REELING:
+            if getattr(self, "_reel_report", None) is not None:
+                line = self._reel_report.summary(self.profile.minigame.kind)
+                if line:
+                    log.info("%s", line)
+                self._reel_report = None
+                if getattr(self, "_recorder", None) is not None:
+                    self._recorder.end()
+            return
+        if getattr(self, "_reel_report", None) is None:
+            self._reel_report = ReelReport()
+            if self.settings.logging.record_reels and not self.simulated:
+                if getattr(self, "_recorder", None) is None:
+                    self._recorder = ReelRecorder()
+                self._recorder.begin({"profile": self.profile.name, "rod": self.profile.equipment.rod_name,
+                                      "skin": self.profile.equipment.skin, "kind": self.profile.minigame.kind,
+                                      "client_size": frame.client_size, "regions": {
+                                          k: [v.x, v.y, v.w, v.h] for k, v in self.profile.regions.items()}})
+        ts, r, dbg = f.tracker.state, obs.reel, f.reel.debug
+        row = {"t": frame.timestamp, "vision_ms": round(obs.processing_ms, 2),
+               "delay_ms": round((time.monotonic() - frame.timestamp) * 1000, 1) if frame.timestamp > 0 else None,
+               "full": frame.full, "origin": list(frame.origin), "fish_seen": r.fish_found, "bar_seen": r.bar_found,
+               "raw_fish": round(r.fish_x, 4), "raw_bar": [round(r.bar_left, 4), round(r.bar_right, 4)],
+               "mode": getattr(f, "steer_mode", ""), "fish": round(ts.fish_x, 4), "bar_l": round(ts.bar_left, 4),
+               "bar_r": round(ts.bar_right, 4), "hold": self.inputs.is_held(), "why": dbg.reason}
+        z = obs.zodiac
+        if self.profile.minigame.kind == "stellarwave":
+            row.update(z_found=bool(z and z.found), z_lit=int(z.lit) if z else 0,
+                       z_located=bool(z and z.found and z.score > 0), z_sure=bool(z and z.confident),
+                       z_xy=[round(z.x, 4), round(z.y, 4)] if z else None, z_score=round(z.score, 3) if z else 0)
+        if obs.timing.present:
+            row.update(pointer=round(obs.timing.pointer, 4), lit=obs.timing.segments)
+        self._reel_report.add(row)
+        rec = getattr(self, "_recorder", None)
+        if rec is not None and rec.folder is not None:
+            rec.add(frame.image, row)
 
     STALL_SECONDS = 180.0
 

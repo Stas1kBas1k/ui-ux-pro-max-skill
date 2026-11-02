@@ -35,7 +35,7 @@ SETTINGS_SECTIONS = [
     ("Notifications", [("notifications", "toasts"), ("notifications", "tray_icon"),
                        ("notifications", "desktop_notifications"), ("notifications", "sound_on_error")]),
     ("Startup", [("startup", "start_minimized"), ("startup", "confirm_exit_while_running"),
-                 ("startup", "check_updates"),
+                 ("startup", "check_updates"), ("logging", "record_reels"),
                  ("appearance", "interface"), ("library", "rod_pictures")]),
 ]
 

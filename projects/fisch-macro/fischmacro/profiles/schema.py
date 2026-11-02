@@ -380,6 +380,9 @@ class StartupConfig:
 class LoggingConfig:
     level: str = opt("INFO", "Log level", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     snapshot_on_error: bool = opt(True, "Save a screenshot on errors", "Stored locally in the diagnostics folder.")
+    record_reels: bool = opt(False, "Record reels for diagnostics", "Saves the reel area of every frame (up to 40 a "
+                             "second) with the macro's decisions, for the last 6 reels, in the data folder. The "
+                             "diagnostics zip includes the newest 2. About 20-40 MB per reel.")
     max_log_files: int = opt(5, "Rotated log files to keep", min=1, max=50)
 
 

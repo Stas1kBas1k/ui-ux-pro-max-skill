@@ -528,3 +528,24 @@ Other changes:
   * Only GitHub hosts over https are contacted.
   * **Not active yet:** publishing builds as public releases waits for the owner's go-ahead. Until then the check
     finds nothing and the app says it is up to date.
+
+## 22. "Stops after a few catches", "tracking has a massive delay", Stellarwave worse over time
+
+* **Found in the player's own log (Oct 28):** "Disconnect or error dialog detected - automation stopped" on one
+  frame. The saved screenshot shows the character in a dark place; 54.7% of the middle matched the dialog
+  grey (limit 55%). The macro then sat idle for 14 minutes. The game's "A new day is here!" message was
+  showing.
+* **Fix:**
+  * A disconnect dialog counts only when it stays on screen, unchanged, for 6 s. A disconnect freezes the game
+    behind the dialog; a dark scene keeps moving. Until then fishing continues and the log says what was seen.
+  * Stall watchdog: no reel for 3 minutes while running writes a stall report (the last 12 steps and what the
+    screen showed) plus a snapshot, then re-equips and casts again.
+* **Measuring the rest:** every reel now ends with a *Reel report* log line: frame rate, vision time,
+  screen-to-decision delay, how often fish and bar were seen, the steering mode (tracked / fish only /
+  released), fish inside the bar, off-centre distance. Stellarwave adds row read, next sign found or sure,
+  and signs lit.
+* **Settings > Startup > Record reels for diagnostics** (off by default) saves the reel area of every frame (up
+  to 40/s) with each decision, for the last 6 reels, in `data/recordings`. The diagnostics zip includes the
+  newest 2, so real reels can be replayed through the code.
+* **Simulator, 40-catch sessions** at difficulty 0.4/0.6/0.8: 40/40 each, no stall. The degradation the player
+  sees is in the real game, which is what the report and the recording are for.
