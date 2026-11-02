@@ -205,8 +205,21 @@ def test_disconnect_without_module_stops_with_error():
     t = _to_reeling(fsm)
     drive(fsm, obs(reel=(0.9, 0.3, 0.5)), t, t + 0.2)
     assert inputs.is_held()
-    fsm.update(obs(disconnect=True), t + 0.3)
+    t = drive(fsm, obs(disconnect=True), t + 0.3, t + 3.0)
+    assert fsm.state != State.ERROR, "a dialog is confirmed only after it stays on screen"
+    drive(fsm, obs(disconnect=True), t, t + 4.0)
     assert fsm.state == State.ERROR and not inputs.is_held()
+
+
+def test_dark_scene_that_looks_like_a_dialog_never_stops_fishing():
+    """Player's log (Oct 28): one dark frame whose middle shared the dialog's grey stopped the macro for good."""
+    fsm, _, _, events = make_fsm()
+    t = _to_waiting(fsm)
+    fsm.update(obs(disconnect=True, dialog_still=False), t)  # a single dark frame
+    t = drive(fsm, obs(), t + 0.1, t + 2.0)
+    t = drive(fsm, obs(disconnect=True, dialog_still=False), t, t + 30.0)  # a dark place: colour matches, scene moves
+    assert fsm.running and fsm.state != State.ERROR
+    assert not any(k == "disconnect" for k, _, _ in events)
 
 
 def test_disconnect_with_auto_reconnect_clicks_reconnect():
@@ -215,7 +228,7 @@ def test_disconnect_with_auto_reconnect_clicks_reconnect():
     p.region("reconnect_button").enabled = True
     fsm, backend, _, _ = make_fsm(p)
     t = _to_waiting(fsm)
-    fsm.update(obs(disconnect=True), t)
+    t = drive(fsm, obs(disconnect=True), t, t + 6.2)
     assert fsm.state == State.RECOVERY and fsm.ctx.reason == "disconnect"
     t = drive(fsm, obs(disconnect=True), t, t + 1.2)
     cx, cy = p.region("reconnect_button").center()

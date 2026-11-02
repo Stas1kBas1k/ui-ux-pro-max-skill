@@ -6,7 +6,7 @@ from fischmacro.vision.engine import Observation
 
 
 def obs(*, reel=None, progress=None, shake=(), cast=None, disconnect=False, popup=False, ok=True,
-        focused=True) -> Observation:
+        focused=True, dialog_still=True) -> Observation:
     o = Observation(timestamp=0.0, ok=ok, client_size=(1000, 500), screen_origin=(100, 50),
                     window_found=True, window_focused=focused)
     if reel is not None:
@@ -18,7 +18,7 @@ def obs(*, reel=None, progress=None, shake=(), cast=None, disconnect=False, popu
     if cast is not None:
         o.cast = d.FillResult(True, cast, 1.0)
     if disconnect:
-        o.disconnect = d.DialogResult(True, 0.9, "test")
+        o.disconnect = d.DialogResult(True, 0.9, "test", still=dialog_still)
     if popup:
         o.catch_popup = d.DialogResult(True, 0.9, "test")
     return o

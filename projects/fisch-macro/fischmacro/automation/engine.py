@@ -605,6 +605,7 @@ class AutomationEngine:
                     self.fsm.update(obs, now)
                 self._self_heal()
                 self._lullaby_snapshot(frame, obs)
+                self._stall_watch(frame, obs, now)
                 if self.fsm.state == State.ERROR:
                     self._snap.last_error = self.fsm.history[-1][3] if self.fsm.history else "error"
                     self._on_fsm_error(frame, obs)
@@ -959,6 +960,42 @@ class AutomationEngine:
         if changed and self.on_profile_changed:
             self.on_profile_changed("autocal", {"old_bar": before["bar"], "old_fish": before["fish"],
                                                 "new_bar": d.bar_color, "new_fish": d.fish_color})
+
+    STALL_SECONDS = 180.0
+
+    def _stall_watch(self, frame: Frame, obs: Observation, now: float) -> None:
+        """Player: "after a few catches it just stops". No reel for 3 minutes while running means the macro is
+        going round in circles (or waiting on something it misreads). Write a stall report the diagnostics zip
+        carries - the last steps and what the screen showed - and start the cycle again from a clean re-equip."""
+        st = self.fsm.state
+        sig = (self.session.catches, self.session.failures)
+        if st == State.REELING or sig != getattr(self, "_stall_sig", None) or getattr(self, "_stall_t", None) is None:
+            self._stall_sig, self._stall_t = sig, now
+            return
+        if now - self._stall_t < self.STALL_SECONDS or self._focus_paused:
+            return
+        self._stall_t = now  # the next report at the earliest one stall period later
+        steps = "; ".join(f"{old.value}->{new.value} ({why})" for _, old, new, why in self.fsm.history[-12:])
+        r = obs.reel
+        seen = (f"screen: {obs.summary_state()}; reel {'on' if r.ui_present else 'off'}, fish "
+                f"{'found' if r.fish_found else 'not found'}, bar {'found' if r.bar_found else 'not found'}, "
+                f"shake buttons {len(obs.shake.targets)}, cast bar {'on' if obs.cast.present else 'off'}, "
+                f"dialog {'yes' if obs.disconnect.detected else 'no'}, focused {obs.window_focused}")
+        log.warning("Stall report: no reel for %.0f s, now %s. %s. Last steps: %s",
+                    self.STALL_SECONDS, st.value, seen, steps)
+        if now - getattr(self, "_stall_snap_t", -1e9) >= 600 and frame.full:
+            self._stall_snap_t = now
+            try:
+                from fischmacro.diagnostics.snapshot import save_snapshot
+                save_snapshot(frame, self.profile, obs, note=f"stall report: stuck in {st.value}. {seen}")
+            except Exception:  # noqa: BLE001
+                log.exception("Could not save the stall snapshot")
+        self._event("warning", f"Nothing reeled for {self.STALL_SECONDS / 60:.0f} min - stall report saved, "
+                               "re-equipping the rod and casting again")
+        if st not in (State.RECOVERY, State.ERROR, State.IDLE):
+            self.inputs.release_all()
+            self.fsm.reel.release()
+            self.fsm._go(State.RECOVERY, now, "stall", force=True)
 
     def _lullaby_snapshot(self, frame: Frame, obs: Observation) -> None:
         """The metronome is hardly found during a Lullaby catch: keep one picture of it (once per run), so the

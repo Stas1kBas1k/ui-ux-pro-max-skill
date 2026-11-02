@@ -215,7 +215,16 @@ class VisionEngine:
                 obs.targets = mg.detect_targets(frame, r, mcfg.target_color, mcfg.target_tolerance)
             checked.append("mini")
         if frame.full and cfg.disconnect_detection and (r := region("disconnect")):
-            obs.disconnect = d.detect_disconnect(frame.crop(r), cfg)
+            dcrop = frame.crop(r)
+            obs.disconnect = d.detect_disconnect(dcrop, cfg)
+            # A disconnect freezes the game behind its dialog; a dark scene that happens to share the dialog's grey
+            # keeps moving (player's log: one dark frame stopped the macro for good). Compare with the last check.
+            small = cv2.resize(cv2.cvtColor(dcrop, cv2.COLOR_BGR2GRAY), (64, 36), interpolation=cv2.INTER_AREA) \
+                if obs.disconnect.detected and dcrop is not None and dcrop.size else None
+            prev = getattr(self, "_dialog_prev", None)
+            if small is not None and prev is not None:
+                obs.disconnect.still = float(np.abs(small.astype(np.int16) - prev).mean()) < 2.5
+            self._dialog_prev = small
             checked.append("disconnect")
         if frame.full:
             obs.frozen_seconds = self._frozen(frame)

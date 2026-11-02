@@ -458,6 +458,7 @@ class DialogResult:
     detected: bool = False
     confidence: float = 0.0
     reason: str = ""
+    still: bool = False  # disconnect: the area did not change since the last check (a frozen, disconnected game)
 
 
 def detect_disconnect(crop: np.ndarray | None, cfg: DetectionConfig) -> DialogResult:

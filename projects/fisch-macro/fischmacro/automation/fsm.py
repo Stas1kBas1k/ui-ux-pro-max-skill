@@ -240,7 +240,7 @@ class FishingStateMachine:
         if self.stop_requested and self.state not in (State.REELING,):
             self.stop(now, self.stop_requested)
             return
-        if obs.disconnect.detected and not (self.state == State.RECOVERY and self.ctx.reason == "disconnect"):
+        if self._dialog_confirmed(obs, now) and not (self.state == State.RECOVERY and self.ctx.reason == "disconnect"):
             self.emit("disconnect", "Disconnect / error dialog detected")
             if self.modules.get("auto_reconnect") and self.profile.region("reconnect_button").enabled:
                 self._go(State.RECOVERY, now, "disconnect", force=True)
@@ -248,6 +248,28 @@ class FishingStateMachine:
                 self._error(now, "Disconnect or error dialog detected - automation stopped")
             return
         getattr(self, f"_on_{self.state.value.lower()}")(obs, now)
+
+    DIALOG_CONFIRM_S = 6.0
+
+    def _dialog_confirmed(self, obs: Observation, now: float) -> bool:
+        """A disconnect dialog counts only when it stays on screen, unchanged, for a few seconds. One dark frame
+        whose middle shared the dialog's grey used to stop the macro for good (player's log, Oct 28: a character
+        in a dark place; the game's "A new day is here!" message was showing)."""
+        d = obs.disconnect
+        if not d.detected:
+            if getattr(self, "_dialog_since", None) is not None:
+                self.emit("info", "The dark panel is gone - it was not a disconnect, fishing goes on")
+            self._dialog_since = self._dialog_still_since = None
+            return False
+        if getattr(self, "_dialog_since", None) is None:
+            self._dialog_since = now
+            self.emit("info", "Something like a disconnect dialog is on screen - checking it before doing anything")
+        if not d.still:
+            self._dialog_still_since = None
+            return False
+        if getattr(self, "_dialog_still_since", None) is None:
+            self._dialog_still_since = now
+        return now - self._dialog_still_since >= self.DIALOG_CONFIRM_S
 
     # ------------------------------------------------------------------ states
     def _on_casting(self, obs: Observation, now: float) -> None:
@@ -536,7 +558,7 @@ class FishingStateMachine:
         if c.reason == "disconnect":
             self._recover_disconnect(obs, now)
             return
-        stuck = c.reason in ("reel stuck", "shake stuck")
+        stuck = c.reason in ("reel stuck", "shake stuck", "stall")
         # Look before acting: the game may already be in a known state (not the stuck screen we are clearing).
         if stuck and c.phase == 0:
             pass

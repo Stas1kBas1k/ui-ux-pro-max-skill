@@ -230,3 +230,31 @@ def test_roblox_that_will_not_come_forward_gets_one_click_into_it():
         assert any("clicked into the game" in m for _, _, m in eng.drain_events())
     finally:
         eng.shutdown()
+
+
+def test_three_minutes_without_a_reel_writes_a_stall_report_and_starts_over(caplog):
+    """Player: "after a few catches it just stops catching". The engine notices, logs what it was doing and
+    what it saw, and re-equips and casts again."""
+    import logging
+
+    import numpy as np
+
+    from fischmacro.automation.fsm import State
+    from fischmacro.vision.engine import Observation
+    from fischmacro.vision.frame import Frame
+    eng = AutomationEngine(sim_settings(), Profile())
+    try:
+        eng.fsm.start(0.0)
+        eng.fsm._go(State.WAITING_FOR_BITE, 0.0, "test", force=True)
+        frame = Frame(np.zeros((720, 1280, 3), np.uint8), (1280, 720), timestamp=0.0)
+        o = Observation(timestamp=0.0, ok=True, client_size=(1280, 720))
+        eng._stall_watch(frame, o, 0.0)
+        eng._stall_watch(frame, o, 100.0)
+        assert eng.fsm.state == State.WAITING_FOR_BITE
+        with caplog.at_level(logging.WARNING):
+            eng._stall_watch(frame, o, 181.0)
+        assert eng.fsm.state == State.RECOVERY and eng.fsm.ctx.reason == "stall"
+        assert any("Stall report" in r.message for r in caplog.records)
+        assert any("stall report saved" in m for _, _k, m in eng.drain_events())
+    finally:
+        eng.shutdown()
