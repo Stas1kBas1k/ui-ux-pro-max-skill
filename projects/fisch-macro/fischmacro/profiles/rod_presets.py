@@ -52,9 +52,13 @@ PRESETS: list[RodPreset] = [
               "stored fish."),
     RodPreset("Migurod", ("migurod", "migu"),
               {"reel.mode": "precision", "reel.mpc_margin": 0.25, "minigame.kind": "migu",
-               "minigame.keep_reeling": True},
+               "minigame.keep_reeling": True, "detection.fish_line": "bright"},
               "Extremely low control: precision tracking with a large safety margin. Presses Shift when the "
               "timing bar's pointer is in the middle. Keeps the bar away from the slash marks."),
+    RodPreset("Remembrance", ("remembrance",),
+              {"detection.fish_line": "bright"},
+              "A white and a dark fish: the white one counts (player's recordings: the bar stays white and the "
+              "progress fills while the white line is inside it, whatever the dark one does)."),
     RodPreset("Tryhard / low resilience", ("tryhard",),
               {"reel.mode": "precision", "reel.mpc_margin": 0.2},
               "Any rod with a tiny bar or fast progress drain."),

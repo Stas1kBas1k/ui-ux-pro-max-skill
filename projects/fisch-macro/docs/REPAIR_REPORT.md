@@ -549,3 +549,54 @@ Other changes:
   newest 2, so real reels can be replayed through the code.
 * **Simulator, 40-catch sessions** at difficulty 0.4/0.6/0.8: 40/40 each, no stall. The degradation the player
   sees is in the real game, which is what the report and the recording are for.
+
+## 23. The player's recordings: why it got worse the longer it ran, and wrong bars on decorated skins
+
+Nine diagnostics zips with reel recordings (Basic Rods, Stellarwave, Doomsekkar, Halibut Crimson Excision, MiguRod,
+Lullaby Hollowed Harp, Remembrance Living / Departed), downloaded from the player's Drive and replayed through the
+code (`scratchpad` tools: replay, rulers, an answer key of 29 hand-labelled frames).
+
+* **Phantom reels ("stops catching after a few fish", "Stellarwave stops clicking signs").** After a catch, the
+  bait text under the character ("Current Bait: ... Increases ...") and the power bar sit exactly where the reel
+  was and were read as a fish and a bar. Stellarwave recording: the minigame ended at 11.8 s, then the macro
+  "reeled" an empty screen for 40 s, until the time limit. Doomsekkar went from one catch straight into the next
+  without ever leaving "reeling". Fix: while reeling, the reel area is compared with how it looked at the cast;
+  0.4 s of "the same as before the cast" ends the reel. On the recordings this separates every reel from every
+  after-catch screen. For Stellarwave the row of 12 signs must also stay on screen (gone 0.8 s = over).
+  Tests: `test_reel_that_has_ended_is_not_kept_alive_by_the_bait_text`.
+* **Pressing backwards.** "Notice inverted controls" switched on by mistake for 18-80% of the reel on Basic Rods,
+  Halibut, MiguRod and Doomsekkar (the misread bar looked like it moved the wrong way). It stays on for that
+  catch, pressing backwards. Now only Dreambreaker has it (new profiles, and existing ones at revision 5). On
+  Dreambreaker a bar held for 0.4 s and still pinned to the left wall now also counts as inverted (pinned frames
+  are never learned from, so the flip could go unnoticed for a whole catch).
+* **Half the frame rate.** Live adaptation asked for full-screen captures 12 times a second during every shake
+  and reel, so 13 of the ~45 frames per second were full screens (and ~90 was possible). In none of the sessions
+  did it change anything. It now watches only while something looks wrong (fish missing for a moment, shake
+  with no reel). The live preview gives at most one full screen per second while reeling.
+* **Learning from the start pause.** Every reel starts with the bar and fish still for 1.5-2 s ("Click & Hold
+  Anywhere!"). The hover estimate (kept from catch to catch) and the input-direction check learned from those
+  frames that pressing does nothing. Nothing is learned now until the bar has moved. The simulator now has this
+  pause too (it made the Dreambreaker test game un-invert when progress fell below 40%; it now stays inverted,
+  as the wiki says).
+* **Bar on decorated skins (`vision/track_reader.py`).**
+  * Halibut Crimson Excision: the white-bar colour found the white fang teeth inside the red bar.
+  * Remembrance: the saved reel area lay below the track (this skin draws it higher).
+  * Doomsekkar: pumpkins and slash effects.
+  * MiguRod: the slashes cut the bar shorter.
+  * New reader: while the bar sits centred at the start (every reel), it finds the height and the width of the
+    clearest centred block (the widest of the clear ones, so an icon inside the bar never wins), learns the empty
+    track there, then follows the window of that width that looks least like empty track. MiguRod's bar may get
+    shorter. The colour finder is used only when it also agrees with the shape finder on the bar.
+  * Not used for Lullaby (bar not steered) or the falling-object rods (objects on the track pulled it off in the
+    test game: 52% -> 31% caught; they keep the reader their handler was tested with).
+* **Fish.** Remembrance (both skins): the white line is the fish. The bar stays white and the progress fills while
+  the white line is inside, whatever the dark one does; the macro followed the dark one. MiguRod: red "!" marks
+  were taken for the fish. Both rods now follow the brightest thin line (preset `detection.fish_line = bright`).
+* **Answer key (29 frames, 10 recordings):** bar right 10 -> 25, fish right 16 -> 26.
+  * Basic: 8/8 before and after.
+  * Halibut bars 0 -> 3/3. Remembrance bars 1 -> 10/10. Doomsekkar bars 0 -> 2/2.
+  * MiguRod bars 2 -> 3/6.
+  * Misses left: 3 MiguRod bars, a Halibut fish on the roses, a Departed fish in the first frames, and a
+    MiguRod "!" dot.
+  * Regression set kept in `tests/fixtures/reels` (reel area only): `tests/test_reel_skins.py`.
+* **Not checked:** clicking in the live game with these changes. The macro decides, the game is not played here.

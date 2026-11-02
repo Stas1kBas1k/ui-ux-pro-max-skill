@@ -200,7 +200,7 @@ def test_old_profiles_get_their_screen_setup_repaired():
     raw = to_dict(_broken(Profile()))
     raw["revision"] = 3
     p = upgrade(from_dict(Profile, raw), raw)
-    assert not screen_setup_differs(p) and p.revision == 4
+    assert not screen_setup_differs(p) and p.revision == 5
 
 
 def test_roblox_that_will_not_come_forward_gets_one_click_into_it():

@@ -59,6 +59,8 @@ class SimulatedFischGame:
         self.mini_action = "click"     # or a key name
         self.mini_period = 1.4         # lullaby pendulum period (s)
         self.result_seconds = 1.2     # the catch result screen; clicks then do not cast
+        # player's recordings: at the start of every reel the bar and fish stay still for 1.5-2 s
+        self.reel_start_pause = 1.5
         self.invert_after: float | None = None  # progress after which hold/release are swapped (Dreambreaker)
         self.input_latency = 0.04      # a click lands this long after the frame it was decided on
         self._pending_clicks: list[float] = []
@@ -254,6 +256,7 @@ class SimulatedFischGame:
 
     def _start_reel(self) -> None:
         self._set("reel")
+        self._inverted = False
         self.bar_w = self.bar_width if self.bar_width else 0.30 - 0.12 * self.difficulty
         self.bar_x = 0.5 - self.bar_w / 2
         self.bar_v = 0.0
@@ -272,7 +275,7 @@ class SimulatedFischGame:
         elif self.rod_minigame == "migu":
             self._migu_at, self._migu_delay = None, self.rng.uniform(1.5, 4.0)
         elif self.rod_minigame == "falling":
-            self._drops, self._drop_next = [], self.t + 1.0
+            self._drops, self._drop_next = [], self.t + self.reel_start_pause + 1.0  # nothing falls during the pause
 
     # ------------------------------------------------------------------ rod minigames
     def _new_segments(self) -> None:
@@ -521,9 +524,13 @@ class SimulatedFischGame:
                 self._set("idle")
 
     def _reel_step(self, dt: float) -> None:
+        if self.t - self.state_t < self.reel_start_pause:
+            return  # as in game: the reel shows "Click & Hold Anywhere!" and nothing moves for a moment
         held = self.mouse_held
         if self.invert_after is not None and self.progress >= self.invert_after:
-            held = not held  # Dreambreaker: after 40% progress the minigame's input is inverted (wiki)
+            self._inverted = True  # Dreambreaker: "after 40% progress ... the input is inverted" (wiki) - for good
+        if getattr(self, "_inverted", False):
+            held = not held
         accel = self.accel_hold if held else -self.accel_release
         self.bar_v += accel * dt
         self.bar_v *= max(0.0, 1.0 - 1.2 * dt)

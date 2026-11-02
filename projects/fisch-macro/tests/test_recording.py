@@ -351,3 +351,28 @@ def test_background_search_needs_two_agreeing_results():
         g.update(img, (960, 902), 1080)
         time.sleep(0.01)
     assert g.offset is not None and len(searches) >= 2
+
+
+def test_reel_that_has_ended_is_not_kept_alive_by_the_bait_text():
+    """Player's Stellarwave recording: after the catch the bait text sat where the reel was and was read as a fish
+    and a bar - the macro "reeled" an empty screen for 40 s. Once the area looks as it did before the cast for
+    0.4 s, the reel is over."""
+    from fischmacro.profiles.schema import Profile
+    from fischmacro.vision.engine import VisionEngine
+    reel = cv2.imread(str(ROOT / "t08.0.jpg"))
+    idle = cv2.imread(str(ROOT / "t03.0.jpg"))
+    v = VisionEngine(Profile())
+    t = 0.0
+    for img, st in [(idle, "CASTING"), (idle, "WAITING_FOR_BITE")]:
+        v.process(Frame(img, (W, H), timestamp=t), None, st)
+        t += 0.05
+    during = []
+    for _ in range(20):  # a real reel: always seen
+        during.append(v.process(Frame(reel, (W, H), timestamp=t), None, "REELING").reel.ui_present)
+        t += 0.05
+    after = []
+    for _ in range(20):  # the reel is gone, the bait text is back: 1 s
+        after.append(v.process(Frame(idle, (W, H), timestamp=t), None, "REELING").reel.ui_present)
+        t += 0.05
+    assert all(during)
+    assert not any(after[9:]), after  # gone after 0.4 s at the latest

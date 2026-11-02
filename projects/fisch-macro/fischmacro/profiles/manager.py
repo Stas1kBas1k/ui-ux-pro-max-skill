@@ -160,8 +160,17 @@ class SettingsStore:
 def upgrade(profile: Profile, raw: dict) -> Profile:
     """Bring a profile saved by an older version up to date. Only values still at an old default change;
     anything the player set by hand is kept."""
-    rev = int(raw.get("revision", 1) or 1) if isinstance(raw, dict) else 4
+    rev = int(raw.get("revision", 1) or 1) if isinstance(raw, dict) else 5
+    if rev >= 5:
+        return profile
+    # revision 5: "notice inverted controls" only on Dreambreaker. The player's recordings showed it switching
+    # on by mistake for 18-80% of reels on other rods (misread bar), pressing backwards for the rest of the catch.
+    profile.reel.detect_inversion = inverts(profile.equipment.rod_name)
+    rod = (profile.equipment.rod_name or "").lower()
+    if "remembrance" in rod or "migu" in rod:  # their fish is the bright line (player's recordings)
+        profile.detection.fish_line = "bright"
     if rev >= 4:
+        profile.revision = 5
         return profile
     t, c, r = profile.timing, profile.casting, profile.reel
     if rev < 2:  # revision 2: recast sooner after a catch, re-equip a stuck rod
@@ -186,5 +195,10 @@ def upgrade(profile: Profile, raw: dict) -> Profile:
         # could leave a rod that never reels again. Back to the built-in setup; Calibrate saves a new one.
         from fischmacro.vision.autocal import reset_screen_setup
         reset_screen_setup(profile)
-    profile.revision = 4
+    profile.revision = 5
     return profile
+
+
+def inverts(rod: str) -> bool:
+    """Dreambreaker swaps hold and release after 40% progress (wiki); its skins are the same rod."""
+    return (rod or "").strip().lower() == "dreambreaker"

@@ -476,7 +476,9 @@ class AutomationEngine:
                     raise CaptureError("Game window not found - is Roblox open?")
                 full = (not perf.roi_capture or self._status in (Status.MONITORING, Status.PAUSED)
                         or t0 - self._last_full >= perf.full_check_interval
-                        or (self._preview_wanted and t0 - self._last_full >= 1.0 / max(1, perf.preview_fps))
+                        # the live preview never costs reel frames: at most one full screen a second while reeling
+                        or (self._preview_wanted and t0 - self._last_full >= (
+                            1.0 if reeling else 1.0 / max(1, perf.preview_fps)))
                         or self.autocal.wants_frame(t0))
                 rect = None if full else self._wanted_rect(win.width, win.height)
                 frame = self.source.grab(win, rect)
@@ -879,11 +881,21 @@ class AutomationEngine:
             self.cal_session.report.reason = (f"timed out after {self.cal_session.report.found} good look(s) - "
                                               "nothing was changed. Play a reel minigame while it watches")
             self.autocal_status = self.cal_session.report.text()
-        self.autocal.active = wizard or adapt
+        # Live adaptation only watches (full-screen frames, 12 a second) while something looks wrong: the fish
+        # missing for a moment, or a shake with no reel. Watching every reel made a third of the frames full
+        # screens and halved the reel frame rate (player's recordings: 13 full frames/s, ~45 fps instead of 90).
+        if obs.reel.ui_present and not obs.reel.fish_found:
+            self._fish_missing_since = self._fish_missing_since or now
+        elif obs.reel.ui_present:
+            self._fish_missing_since = None
+        trouble = (st == "REELING" and self._fish_missing_since is not None and now - self._fish_missing_since > 0.15) \
+            or (st == "SHAKE" and now - self.fsm.ctx.entered > 0.8 and not obs.reel.ui_present)
+        self.autocal.active = wizard or (adapt and trouble)
         if not self.autocal.active:
             if self.autocal.frames:
                 self.autocal.clear()
-            self._fish_missing_since = None
+            if st != "REELING":
+                self._fish_missing_since = None
             return
         if frame.full:
             self.autocal.add(frame.image, now)
@@ -891,10 +903,6 @@ class AutomationEngine:
             self._last_shake_seen = now
             if not wizard:
                 self.autocal.clear()  # the reel starts after the last shake
-        if obs.reel.ui_present and not obs.reel.fish_found:
-            self._fish_missing_since = self._fish_missing_since or now
-        else:
-            self._fish_missing_since = None
         span = (self.autocal.frames[-1][0] - self.autocal.frames[0][0]) if len(self.autocal.frames) > 1 else 0.0
         if span < (2.0 if wizard else 0.9) or now - self._last_autocal_try < 0.5:
             return
@@ -968,7 +976,7 @@ class AutomationEngine:
         f = self.fsm
         if f.state != State.REELING:
             if getattr(self, "_reel_report", None) is not None:
-                line = self._reel_report.summary(self.profile.minigame.kind)
+                line = self._reel_report.summary(getattr(self._reel_report, "kind", self.profile.minigame.kind))
                 if line:
                     log.info("%s", line)
                 self._reel_report = None
@@ -977,6 +985,7 @@ class AutomationEngine:
             return
         if getattr(self, "_reel_report", None) is None:
             self._reel_report = ReelReport()
+            self._reel_report.kind = self.profile.minigame.kind  # the rod of this reel, even if Start changes it
             if self.settings.logging.record_reels and not self.simulated:
                 if getattr(self, "_recorder", None) is None:
                     self._recorder = ReelRecorder()

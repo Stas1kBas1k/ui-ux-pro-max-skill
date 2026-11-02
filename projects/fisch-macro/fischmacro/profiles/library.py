@@ -170,6 +170,8 @@ class RodLibrary:
         preset = find_preset(rod)
         if preset is not None:
             apply_preset(p, preset)
+        from fischmacro.profiles.manager import inverts
+        p.reel.detect_inversion = inverts(rod)
         return p
 
     def load_or_create(self, rod: str, skin: str, base: Profile) -> tuple[Profile, bool]:

@@ -90,6 +90,8 @@ class VisionEngine:
         from fischmacro.vision.lullaby_gauge import LullabyGauge
         from fischmacro.vision.falling import FallingObjects
         self.lullaby_gauge = LullabyGauge()
+        from fischmacro.vision.track_reader import TrackReader
+        self.track_reader = TrackReader()  # the catch bar of any skin (centred at the start, fixed width)
         self.falling = FallingObjects()
         self.verify_shake = True  # read the word before a shake click (off in the simulator: no real text)
         # Lullaby: the old lit-colour reader is only for the test game. On the real game it clicked on the red
@@ -143,7 +145,17 @@ class VisionEngine:
             r = p.region(name)
             return r if r.enabled and r.is_valid() else None
 
-        if "reel" in wanted and (r := region("reel")):
+        tr = self.track_reader
+        if state == "REELING" and getattr(self, "_last_state", None) != "REELING":
+            tr.reset()  # a new reel: its bar is measured again while it sits centred
+            self._zodiac_seen = None
+            tr.shrink = kind == "migu"
+        self._last_state = state
+        if "reel" in wanted and (r0 := region("reel")):
+            gate_crop = frame.crop(r0)  # the reel gate compares the saved area with how it looked at the cast
+            r = r0
+            if state == "REELING" and tr.locked and tr.dy:
+                r = Region(r0.x, r0.y + tr.dy, r0.w, r0.h)  # this skin draws the track higher or lower
             crop = frame.crop(r)
             obs.reel = d.detect_reel(crop, cfg)
             if getattr(cfg, "fish_any_colour", True):
@@ -163,8 +175,19 @@ class VisionEngine:
                     rr = obs.reel
                     obs.reel.marks = tuple(find_marks(crop, rr.fish_x if rr.fish_found else None,
                                                       (rr.bar_left, rr.bar_right) if rr.bar_found else None))
+            # Lullaby leaves the bar alone; falling-object rods keep the reader their handler was tested with
+            # (objects landing on the track pulled this one off: test game, caught 52% -> 31%)
+            if state == "REELING" and shape_ok and cfg.reel_mode != "capsule" and kind not in ("lullaby", "falling"):
+                at = lambda dy: Region(r0.x, r0.y + dy, r0.w, r0.h)  # noqa: E731
+                res = tr.update(lambda dy: frame.crop(at(dy)), lambda dy: frame.crop(self._tall(at(dy))))
+                if res is not None and kind == "migu" and tr.conf >= 0.5:
+                    obs.reel.ui_present = True  # MiguRod's slashes and marks make the old check blink off mid-reel
+                if res is not None and obs.reel.ui_present and tr.conf >= 0.25:
+                    rr = obs.reel
+                    rr.bar_left, rr.bar_right, rr.bar_found = res[0], res[1], True
+                    rr.bar_confidence = max(0.6, tr.conf)
             self._sanity(obs, wide=cfg.reel_mode == "capsule")
-            self._reel_gate(crop, obs, state, frame.timestamp)
+            self._reel_gate(gate_crop, obs, state, frame.timestamp)
             checked.append("reel")
         if "progress" in wanted and (r := region("progress")):
             pcrop = frame.crop(r)
@@ -211,6 +234,13 @@ class VisionEngine:
                         obs.timing = auto
             elif kind == "stellarwave" and (rw := region("reel_wide")):
                 obs.zodiac = self._zodiac(frame, rw)
+                if state == "REELING":
+                    # the minigame always shows its row of 12 signs: once it has been seen and stays gone, the
+                    # reel is over (the bait text left behind was read as a reel for 40 s - player's recording)
+                    if obs.zodiac is not None and obs.zodiac.found:
+                        self._zodiac_seen = frame.timestamp
+                    elif getattr(self, "_zodiac_seen", None) is not None and frame.timestamp - self._zodiac_seen > 0.8:
+                        obs.reel.ui_present = obs.reel.fish_found = obs.reel.bar_found = False
             elif kind == "targets":
                 obs.targets = mg.detect_targets(frame, r, mcfg.target_color, mcfg.target_tolerance)
             checked.append("mini")
@@ -266,6 +296,17 @@ class VisionEngine:
         if state in self.GATED_STATES and same and obs.reel.ui_present:
             obs.reel.ui_present = obs.reel.fish_found = obs.reel.bar_found = False
             self.reel_gated = getattr(self, "reel_gated", 0) + 1
+        if state == "REELING":
+            # The reel is over once its area looks like it did before the cast again (player's recordings: the
+            # bait text under the character - "Current Bait: ... Increases ..." - sits exactly where the reel was
+            # and was read as a fish and a bar, so a reel that had ended went on for 40 s, until the time limit).
+            if same and obs.reel.ui_present:
+                self._same_since = getattr(self, "_same_since", None) or t
+                if t - self._same_since >= 0.4:
+                    obs.reel.ui_present = obs.reel.fish_found = obs.reel.bar_found = False
+                    self.reel_phantom = getattr(self, "reel_phantom", 0) + 1
+            else:
+                self._same_since = None
         if state == "CASTING" or (state == "WAITING_FOR_BITE" and changed is not None and changed < 0.08
                                   and t - getattr(self, "_reel_ref_t", -1e9) > 1.0):
             self._reel_ref, self._reel_ref_t = g, t  # the area without the reel (follows slow HUD changes)
@@ -317,6 +358,13 @@ class VisionEngine:
         tall = frame.crop(self._tall(r))
         if tall is None:
             return
+        if getattr(self.profile.detection, "fish_line", "any") == "bright":
+            from fischmacro.vision.reel_edges import brightest_line
+            hit = brightest_line(tall)
+            if hit is not None:
+                rr = obs.reel
+                rr.fish_found, rr.fish_x, rr.fish_confidence = True, hit[0], max(0.6, hit[1])
+            return
         from fischmacro.vision.reel_edges import edge_strength, find_fish
         f = edge_strength(cv2.GaussianBlur(tall, (3, 1), 0))
         ff = find_fish(f, tall.shape[1], tall)
@@ -357,9 +405,15 @@ class VisionEngine:
 
     @staticmethod
     def _pick_reel(colour: d.ReelResult, shape: d.ReelResult) -> d.ReelResult:
-        """Trust calibrated colours when they agree with the shape tracker; otherwise the shape tracker."""
+        """Trust calibrated colours when they agree with the shape tracker; otherwise the shape tracker.
+        Agreeing means the same fish AND the same bar: on the Halibut Crimson Excision skin the white-bar colour
+        found the white fang teeth inside the red bar (player's recording) while the shape tracker had the bar."""
         if colour.present and colour.bar_found and colour.confidence >= 0.5:
-            if not shape.fish_found or abs(colour.fish_x - shape.fish_x) < 0.03:
+            same_fish = not shape.fish_found or abs(colour.fish_x - shape.fish_x) < 0.03
+            cw, sw = colour.bar_right - colour.bar_left, shape.bar_right - shape.bar_left
+            same_bar = not shape.bar_found or (
+                abs(colour.bar_center - shape.bar_center) < 0.05 and 0.6 < cw / max(1e-3, sw) < 1.6)
+            if same_fish and same_bar:
                 return colour
         if shape.bar_found:
             return shape

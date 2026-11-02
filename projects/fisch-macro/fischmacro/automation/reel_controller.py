@@ -174,6 +174,8 @@ class ReelController:
         self._last_switch = -1e9
         self._raw_bv: float | None = None
         self._prev_hold = False  # decision before the last one
+        self._bar_moved = False  # set once the bar has moved in this reel (the game's start pause is over)
+        self._wall_since: float | None = None
         self.sense.reset()  # every catch starts with normal input
         self.debug = ReelDebug()
 
@@ -197,11 +199,17 @@ class ReelController:
             # Skip samples near the walls and while the fish icon overlaps a bar edge (that shifts
             # the detected edge by the icon width and fakes a velocity jump).
             near_edge = min(abs(fish_x - bar_left), abs(fish_x - bar_right)) < 0.03
-            if self._raw_bv is not None and bar_left > 0.03 and bar_right < 0.97 and not near_edge:
+            # the game holds the bar still for 1.5-2 s at the start of every reel ("Click & Hold Anywhere!"):
+            # learning from those frames taught "pressing does nothing" (hover, input direction), and the hover
+            # estimate is kept from catch to catch - so nothing is learned until the bar has moved
+            if abs(raw_bv) > 0.3:  # a real move (detection jitter on a still bar stays well below)
+                self._bar_moved = True
+            if self._raw_bv is not None and bar_left > 0.03 and bar_right < 0.97 and not near_edge \
+                    and self._bar_moved:
                 accel = (raw_bv - self._raw_bv) / dt
                 if abs(accel) < 25.0:
                     sent = (float(self._hold) + float(self._prev_hold)) / 2
-                    if self.sense.add(sent, accel, getattr(c, "detect_inversion", True)) and self.on_inverted:
+                    if self.sense.add(sent, accel, getattr(c, "detect_inversion", False)) and self.on_inverted:
                         self.on_inverted(self.sense.inverted)
                     inv = self.sense.inverted
                     phys = (not self._hold) if inv else self._hold  # what the bar actually felt
@@ -211,6 +219,7 @@ class ReelController:
                     h_mix = (1.0 - sent) if inv else sent
                     self.plant.add(h_mix, (raw_bv + self._raw_bv) / 2, accel)
             self._raw_bv = raw_bv
+            self._wall_check(bar_left, bar_right, now)
         self._t, self._fish, self._bar = now, fish_x, bar_c
 
         predicted = _clamp(fish_x + self.fish_v * c.lookahead, 0.0, 1.0)
@@ -268,6 +277,24 @@ class ReelController:
         self.debug = ReelDebug(fish_x, self.fish_v, predicted, bar_c, self.bar_v, bar_w, error,
                                command, duty, want, reason, bias, c.auto_hover and self.hover.value is not None)
         return want
+
+    def _wall_check(self, bar_left: float, bar_right: float, now: float) -> None:
+        """Held for 0.4 s and the bar still pinned at the LEFT wall (or released and pinned at the right one): the
+        input works the other way round. Pinned frames are never used for learning, so on Dreambreaker the bar
+        could sit at the wall for the rest of the catch without the flip being noticed."""
+        if not getattr(self.cfg, "detect_inversion", False) or not self._bar_moved:
+            return
+        phys = (not self._hold) if self.sense.inverted else self._hold  # what the game got
+        wrong_wall = (phys and bar_left <= 0.03) or (not phys and bar_right >= 0.97)
+        if not wrong_wall or self._hold != self._prev_hold:
+            self._wall_since = None
+            return
+        self._wall_since = self._wall_since or now
+        if now - self._wall_since >= 0.4:
+            self.sense.inverted = not self.sense.inverted
+            self._wall_since = None
+            if self.on_inverted:
+                self.on_inverted(self.sense.inverted)
 
     # 16 hold/release plans over 4 segments, as a (16, 4) array of 0/1
     _PLANS = np.array([[(i >> k) & 1 for k in range(3, -1, -1)] for i in range(16)], dtype=float)

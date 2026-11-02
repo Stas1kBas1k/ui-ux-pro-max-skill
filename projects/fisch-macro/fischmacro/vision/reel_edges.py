@@ -91,6 +91,42 @@ def find_fish(f: np.ndarray, w: int, img: np.ndarray | None = None) -> tuple[flo
     return best[1] / w, min(1.0, best[0] / 0.5), int(best[2] / 2) + 2
 
 
+def line_candidates(f: np.ndarray, w: int, min_score: float = 0.3) -> list[tuple[float, float, int]]:
+    """Every narrow pair of strong edges (thin lines), as (x in px, score, gap in px)."""
+    max_gap = max(8, int(0.022 * w))
+    pk = _peaks(f, 0.3)
+    out = []
+    for i, a in enumerate(pk):
+        for b in pk[i + 1:]:
+            gap = b - a
+            if gap > max_gap:
+                break
+            if gap >= 2 and min(f[a], f[b]) >= min_score:
+                out.append(((a + b) / 2, float(min(f[a], f[b])), gap))
+    return out
+
+
+def brightest_line(tall: np.ndarray) -> tuple[float, float] | None:
+    """(x as a fraction, confidence) of the brightest thin line crossing the strip."""
+    w = tall.shape[1]
+    f = edge_strength(cv2.GaussianBlur(tall, (3, 1), 0))
+    cands = line_candidates(f, w)
+    if not cands:
+        return None
+    g = cv2.cvtColor(tall, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    best = None
+    for x, score, gap in cands:
+        a, b = int(x - gap / 2) + 1, int(x + gap / 2)
+        if b <= a:
+            continue
+        lum = float(np.median(g[:, a:b]))
+        if best is None or lum > best[0]:
+            best = (lum, x, score)
+    if best is None or best[0] < 150:
+        return None
+    return best[1] / w, min(1.0, best[2] / 0.5)
+
+
 def _col_means(crop: np.ndarray) -> np.ndarray:
     h = crop.shape[0]
     mid = crop[int(h * 0.3):max(int(h * 0.3) + 1, int(h * 0.7))].astype(np.float32)

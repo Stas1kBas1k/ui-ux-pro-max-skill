@@ -95,6 +95,9 @@ class DetectionConfig:
     fish_tolerance: int = opt(22, "Fish colour tolerance", "Per-channel tolerance (0-255).", min=0, max=128)
     fish_any_colour: bool = opt(True, "Find the fish by shape (any colour)",
                                 "Works with every rod skin: the fish is the thin line that stands out from the track.")
+    fish_line: str = opt("any", "Which line is the fish", "Some rods draw more than one line: Remembrance a white and "
+                         "a dark fish (the white one counts), MiguRod red '!' marks next to the pale fish line. "
+                         "'bright' follows the brightest line.", choices=["any", "bright"])
     fish_color2: str = opt("#000000", "Fish marker outline", "Skinned rods draw the fish as a dark marker line.",
                            kind="color")
     fish_tolerance2: int = opt(18, "Marker tolerance", "0 turns the second fish colour off.", min=0, max=64)
@@ -185,9 +188,9 @@ class ReelConfig:
     min_switch_ms: int = opt(0, "Shortest hold / release", "The mouse is held or released for at least this "
                              "long. Higher is calmer (fewer, longer clicks); 0 reacts every frame. Set by "
                              "Sensitivity.", min=0, max=150, suffix=" ms")
-    detect_inversion: bool = opt(True, "Notice inverted controls", "Some rods swap hold and release mid-catch "
-                                 "(Dreambreaker after 40%). The bar's response is watched and the input flipped "
-                                 "while it is inverted.")
+    detect_inversion: bool = opt(False, "Notice inverted controls", "Only for Dreambreaker (and its skins), "
+                                 "which swaps hold and release after 40%. On other rods a misread bar made it press "
+                                 "backwards (player's recordings), so it is off.")
     wall_rule: bool = opt(True, "Hold or release at the walls", "When the fish is at the left wall the mouse is "
                           "released, at the right wall it is held, whatever the bar is doing.")
     calm_zone: float = opt(0.2, "Calm zone", "Shortest hold / release only applies while the fish is within this "
@@ -280,7 +283,7 @@ class EquipmentConfig:
 @dataclass
 class Profile:
     name: str = "Default"
-    revision: int = 4  # profile format; older files are upgraded on load (manager.upgrade)
+    revision: int = 5  # profile format; older files are upgraded on load (manager.upgrade)
     notes: str = ""
     regions: dict[str, Region] = field(default_factory=lambda: copy.deepcopy(DEFAULT_REGIONS))
     detection: DetectionConfig = field(default_factory=DetectionConfig)

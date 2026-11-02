@@ -29,15 +29,35 @@ def test_inverted_controls_are_noticed_and_flipped():
     for seed in range(3):
         g = SimulatedFischGame(seed=seed, difficulty=0.4)
         g.invert_after = 0.4
-        r = run_simulation(Profile(), game=g, cycles=3, max_time=200, fps=40)
+        p = Profile()
+        p.equipment.rod_name = "Dreambreaker"
+        p.reel.detect_inversion = True  # what a Dreambreaker profile gets (library.recommended)
+        r = run_simulation(p, game=g, cycles=3, max_time=200, fps=40)
         ok, n = ok + r.outcomes.get("success", 0), n + sum(r.outcomes.values())
     assert n == 9 and ok == 9
 
 
+def test_inverted_controls_check_is_only_on_for_dreambreaker(tmp_path):
+    """Player's recordings: on other rods the check switched on by mistake for 18-80% of reels and pressed
+    backwards. New and upgraded profiles keep it only for Dreambreaker."""
+    from fischmacro.profiles.library import RodLibrary
+    from fischmacro.profiles.manager import ProfileManager, upgrade
+    from fischmacro.profiles.schema import LibraryConfig
+    lib = RodLibrary(ProfileManager(tmp_path), LibraryConfig())
+    assert lib.recommended("Dreambreaker", "Default", Profile()).reel.detect_inversion
+    assert not lib.recommended("Halibut Harpoon", "Default", Profile()).reel.detect_inversion
+    assert not Profile().reel.detect_inversion
+    old = Profile()
+    old.reel.detect_inversion, old.equipment.rod_name = True, "Doomsekkar Rod"
+    assert not upgrade(old, {"revision": 4}).reel.detect_inversion
+
+
 def test_falling_objects_are_caught_without_losing_the_fish():
-    off = _play("none", "falling")
-    on = _play("falling", "falling")
-    assert on[2] == on[3] == 9  # every fish still caught
+    # 8 seeds (about 25 objects each way): with the game's start pause modelled, 3 seeds gave only ~11 objects,
+    # too few to tell the handler from chance
+    off = _play("none", "falling", seeds=8)
+    on = _play("falling", "falling", seeds=8)
+    assert on[2] == on[3] == 24  # every fish still caught
     rate = lambda r: r[0] / max(1, r[0] + r[1])  # noqa: E731
     assert rate(on) > rate(off) + 0.15, (off, on)
 

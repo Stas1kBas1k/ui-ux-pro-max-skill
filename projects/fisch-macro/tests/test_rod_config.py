@@ -59,7 +59,7 @@ def test_sensitivity_is_damped_and_upgrades_old_profiles():
             old["reel"]["end_grace"] = 0.6
             old["timing"]["post_catch_delay"], old["casting"]["pre_cast_delay"] = 1.6, 0.35
         p = upgrade(from_dict(Profile, old), old)
-        assert sensitivity(p) == 5 and p.reel.kd == 1.35 and p.minigame.min_interval == 0.0 and p.revision == 4
+        assert sensitivity(p) == 5 and p.reel.kd == 1.35 and p.minigame.min_interval == 0.0 and p.revision == 5
     assert (p.timing.post_catch_delay, p.casting.pre_cast_delay) == (0.5, 0.15)
     old["timing"]["post_catch_delay"], old["revision"] = 3.0, 1  # set by hand: kept
     assert upgrade(from_dict(Profile, old), old).timing.post_catch_delay == 3.0
