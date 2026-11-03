@@ -149,7 +149,6 @@ class VisionEngine:
         if state == "REELING" and getattr(self, "_last_state", None) != "REELING":
             tr.reset()  # a new reel: its bar is measured again while it sits centred
             self._zodiac_seen = None
-            tr.shrink = kind == "migu"
         self._last_state = state
         if "reel" in wanted and (r0 := region("reel")):
             gate_crop = frame.crop(r0)  # the reel gate compares the saved area with how it looked at the cast

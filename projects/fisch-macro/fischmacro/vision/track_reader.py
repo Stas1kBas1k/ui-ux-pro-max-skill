@@ -196,37 +196,4 @@ class TrackReader:
         outside = np.concatenate([D[:max(0, x - 4)], D[x + W + 4:]])
         contrast = float(inside[x] - (np.median(outside) if outside.size else 0.0))
         self.conf = float(np.clip(contrast / 40.0, 0.0, 1.0))
-        lo, hi = x, x + W
-        if self.shrink:
-            lo, hi = self._cut_bar(D, x, W, w)
-        return lo / w, hi / w, self.conf
-
-    shrink = False  # MiguRod: slashes cut the bar shorter during the reel
-
-    def _cut_bar(self, D: np.ndarray, x: int, W: int, w: int) -> tuple[int, int]:
-        """The part of the window that really is bar (the rest looks like empty track); after a few frames the
-        shorter width is kept."""
-        seg = D[x:x + W]
-        if seg.size < 8:
-            return x, x + W
-        good = seg > 0.5 * float(np.percentile(seg, 90))
-        gap, best, start, miss = max(2, int(0.02 * w)), (0, 0), None, 0
-        for i, g in enumerate(np.append(good, False)):
-            if g:
-                start = i if start is None else start
-                miss = 0
-            elif start is not None:
-                miss += 1
-                if miss > gap or i == len(good):
-                    end = i - miss + 1
-                    if end - start > best[1] - best[0]:
-                        best = (start, end)
-                    start, miss = None, 0
-        a, b = best
-        if b - a < 0.8 * W and b - a > 0.03 * w:
-            self.short = getattr(self, "short", 0) + 1
-            if self.short >= 4:
-                self.W, self.x, self.short = b - a, x + a, 0
-            return x + a, x + b
-        self.short = 0
-        return x, x + W
+        return x / w, (x + W) / w, self.conf

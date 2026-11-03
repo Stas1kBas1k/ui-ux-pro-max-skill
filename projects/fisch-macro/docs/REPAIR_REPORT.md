@@ -585,8 +585,10 @@ code (`scratchpad` tools: replay, rulers, an answer key of 29 hand-labelled fram
   * MiguRod: the slashes cut the bar shorter.
   * New reader: while the bar sits centred at the start (every reel), it finds the height and the width of the
     clearest centred block (the widest of the clear ones, so an icon inside the bar never wins), learns the empty
-    track there, then follows the window of that width that looks least like empty track. MiguRod's bar may get
-    shorter. The colour finder is used only when it also agrees with the shape finder on the bar.
+    track there, then follows the window of that width that looks least like empty track. The colour finder is
+    used only when it also agrees with the shape finder on the bar.
+  * MiguRod's slashes cut its bar shorter; letting the width shrink made the test game worse (it kept shrinking)
+    and the recordings no better, so the width stays fixed. MiguRod is the rod still read worst (bar 3/6).
   * Not used for Lullaby (bar not steered) or the falling-object rods (objects on the track pulled it off in the
     test game: 52% -> 31% caught; they keep the reader their handler was tested with).
 * **Fish.** Remembrance (both skins): the white line is the fish. The bar stays white and the progress fills while
