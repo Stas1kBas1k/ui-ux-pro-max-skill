@@ -138,6 +138,7 @@ def self_test() -> int:
     print(f"OCR: {'ok' if ocr_ok else 'FAILED'} ({text!r}) {OcrEngine.shared().error}")
     ok &= ocr_ok
     g = SimulatedFischGame(seed=1)
+    g.reel_start_pause = 0.0  # one frame 0.1 s in: as before the test game had the reel's start pause
     g._start_reel()
     g.step(0.1)
     obs = VisionEngine(Profile()).process(Frame(g.render(), (g.width, g.height)))
@@ -146,6 +147,7 @@ def self_test() -> int:
     # any rod skin: a random skin with no calibration must still be read
     from fischmacro.simulation.game import random_skin
     g = SimulatedFischGame(seed=3)
+    g.reel_start_pause = 0.0
     g.skin = random_skin(3)
     g._start_reel()
     g.step(0.1)
