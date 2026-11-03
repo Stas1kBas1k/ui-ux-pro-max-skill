@@ -474,7 +474,7 @@ class WebApi:
                             "direction": tr.direction, "confidence": round(tr.confidence, 2),
                             "ignored": tr.rejected, "coasting": tr.coasting},
                "inputs": recent, "minigame_log": list(eng.fsm.minigame.log)[-8:],
-               "transitions": [{"ago": round(time.monotonic() - t, 1), "from": a.value, "to": b.value, "why": w}
+               "transitions": [{"ago": round(time.perf_counter() - t, 1), "from": a.value, "to": b.value, "why": w}
                                for t, a, b, w in eng.fsm.history[-8:][::-1]],
                "error": snap.last_error, "image": None,
                "mechanics": [{"kind": k, "label": l} for k, l in self.TEST_MECHANICS],

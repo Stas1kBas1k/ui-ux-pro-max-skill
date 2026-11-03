@@ -73,7 +73,7 @@ def diagnostics_html(eng) -> str:
                 for t, what, sent, err in list(back.recent)[-14:][::-1]]
         out.append(_section("Last inputs", "<table>" + _rows(rows) + "</table>"))
     if f.history:
-        now = time.monotonic()
+        now = time.perf_counter()
         rows = [(f"{now - t:6.1f} s ago", f"{a.value} -> {b.value}  ({why})") for t, a, b, why in f.history[-12:][::-1]]
         out.append(_section("Recent transitions", "<table>" + _rows(rows) + "</table>"))
     if f.minigame.log:

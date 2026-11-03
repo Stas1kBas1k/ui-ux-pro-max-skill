@@ -219,7 +219,7 @@ class VisionPage(QWidget):
             self.hover_lbl.setText(f"Bar balance learned: {learned:.2f} (profile has {self.ctx.profile.reel.hold_bias:.2f})")
         d["perf"].setText(f"{s.fps:.0f} fps")
 
-        now = time.monotonic()
+        now = time.perf_counter()
         interval = 1.0 / max(1, self.ctx.settings.performance.preview_fps)
         if s.preview is not None and s.frame_id != self._last_preview_id and now - self._last_preview_t >= interval:
             self._last_preview_id = s.frame_id

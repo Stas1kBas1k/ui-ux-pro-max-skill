@@ -87,4 +87,4 @@ class PromptReader:
             with self._lock:
                 self.read_ms = (time.perf_counter() - t0) * 1000
                 if found:
-                    self.result, self.result_at = found[0], time.monotonic()
+                    self.result, self.result_at = found[0], time.perf_counter()

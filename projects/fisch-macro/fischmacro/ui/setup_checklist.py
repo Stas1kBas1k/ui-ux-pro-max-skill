@@ -113,7 +113,7 @@ class SetupChecklist(Card):
         if self.ctx.settings.setup_dismissed:
             self.hide()
             return
-        now = time.monotonic()
+        now = time.perf_counter()
         if now - self._last < 1.0:
             return
         self._last = now

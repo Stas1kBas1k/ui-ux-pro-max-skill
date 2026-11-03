@@ -266,7 +266,7 @@ class AppContext(QObject):
         import time
         self.last_ai_reading = r
         w = self.engine.addons.world
-        now = time.monotonic()
+        now = time.perf_counter()
         from fischmacro.game_data import SURGES, WEATHERS
         weather = next((n for n, _, _, words in WEATHERS
                         if r.get("weather") and (n.lower() in r["weather"].lower() or

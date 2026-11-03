@@ -102,24 +102,24 @@ class RoutineRunner:
         elif k == "wait":
             self._wait(step.seconds)
         elif k == "click_text":
-            deadline = time.monotonic() + max(0.5, step.seconds)
+            deadline = time.perf_counter() + max(0.5, step.seconds)
             while True:
                 boxes, _ = self._ocr()
                 box = find_text_box(boxes, step.value)
                 if box:
                     self._click(box.x, box.y)
                     return
-                if time.monotonic() >= deadline:
+                if time.perf_counter() >= deadline:
                     raise RoutineAborted(f"text '{step.value}' not found on screen")
                 self._wait(0.5)
         elif k == "wait_text":
-            deadline = time.monotonic() + max(0.5, step.seconds)
+            deadline = time.perf_counter() + max(0.5, step.seconds)
             words = _keywords(step.value)
             while True:
                 boxes, _ = self._ocr()
                 if find_keywords(" ".join(b.text for b in boxes), words):
                     return
-                if time.monotonic() >= deadline:
+                if time.perf_counter() >= deadline:
                     raise RoutineAborted(f"none of {words} appeared")
                 self._wait(0.6)
         else:

@@ -36,7 +36,7 @@ class DiscordNotifier:
         """Queue a message. ``key`` rate-limits repeats of the same alert."""
         if not self.configured:
             return False
-        now = time.monotonic()
+        now = time.perf_counter()
         k = key or title
         if now - self._last.get(k, -1e9) < min_gap:
             return False

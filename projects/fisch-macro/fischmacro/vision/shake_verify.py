@@ -46,7 +46,7 @@ class ShakeVerifier:
             return []
         if not self.available():
             return targets  # no OCR installed: fall back to the shape check alone
-        now = time.monotonic() if now is None else now
+        now = time.perf_counter() if now is None else now
         out = []
         W, H = client_size
         with self._lock:
@@ -86,12 +86,12 @@ class ShakeVerifier:
             with self._lock:
                 self.reads += 1
                 self.last_text = text
-                self._verdict[k] = (ok, time.monotonic(), text)
+                self._verdict[k] = (ok, time.perf_counter(), text)
 
     def wait_idle(self, timeout: float = 5.0) -> None:
         """For tests: block until queued candidates have been read."""
-        end = time.monotonic() + timeout
-        while time.monotonic() < end:
+        end = time.perf_counter() + timeout
+        while time.perf_counter() < end:
             with self._lock:
                 if not self._busy and not self._queue:
                     return

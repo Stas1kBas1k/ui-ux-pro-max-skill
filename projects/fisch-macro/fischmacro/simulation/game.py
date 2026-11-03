@@ -556,7 +556,7 @@ class SimulatedFischGame:
             self._finish(False)
 
     def advance_realtime(self, max_dt: float = 0.1) -> None:
-        now = time.monotonic()
+        now = time.perf_counter()
         if self._real_last is None:
             self._real_last = now
             return

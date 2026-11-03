@@ -89,7 +89,7 @@ class HotkeyManager:
     """
 
     def __init__(self, bindings: dict[str, str], callback: Callable[[str], None], debounce: float = 0.25,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.perf_counter):
         self.callback = callback
         self.debounce = debounce
         self.clock = clock

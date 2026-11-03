@@ -60,7 +60,7 @@ class ScreenCapture(CaptureSource):
 
     def locate(self) -> WindowInfo:
         if self.mode == "window":
-            now = time.monotonic()
+            now = time.perf_counter()
             if self._win_cache and now - self._win_cache[0] < 0.5:
                 return self._win_cache[1]
             if not IS_WINDOWS:
@@ -88,7 +88,7 @@ class ScreenCapture(CaptureSource):
             raise CaptureError(f"Capture failed: {exc}") from exc
         img = np.asarray(shot)[:, :, :3]  # BGRA -> BGR view
         return Frame(np.ascontiguousarray(img), (win.width, win.height), (x, y), (win.left, win.top),
-                     time.monotonic(), full=rect is None,
+                     time.perf_counter(), full=rect is None,
                      meta={"window_found": True, "window_focused": win.focused})
 
     def close(self) -> None:
@@ -116,7 +116,7 @@ class SimulationCapture(CaptureSource):
         img = self.game.render()
         x, y, w, h = rect if rect else (0, 0, self.game.width, self.game.height)
         crop = img[y:y + h, x:x + w].copy()
-        return Frame(crop, (self.game.width, self.game.height), (x, y), (0, 0), time.monotonic(),
+        return Frame(crop, (self.game.width, self.game.height), (x, y), (0, 0), time.perf_counter(),
                      full=rect is None, meta={"window_found": True, "window_focused": True})
 
 
@@ -130,11 +130,11 @@ class ImageFolderCapture(CaptureSource):
         if not self.files:
             raise CaptureError(f"No images in {folder}")
         self.interval = interval
-        self._start = time.monotonic()
+        self._start = time.perf_counter()
         self._cache: dict[Path, np.ndarray] = {}
 
     def _current(self) -> np.ndarray:
-        idx = int((time.monotonic() - self._start) / self.interval) % len(self.files)
+        idx = int((time.perf_counter() - self._start) / self.interval) % len(self.files)
         p = self.files[idx]
         if p not in self._cache:
             img = cv2.imread(str(p), cv2.IMREAD_COLOR)
@@ -151,5 +151,5 @@ class ImageFolderCapture(CaptureSource):
         img = self._current()
         h, w = img.shape[:2]
         x, y, rw, rh = rect if rect else (0, 0, w, h)
-        return Frame(img[y:y + rh, x:x + rw].copy(), (w, h), (x, y), (0, 0), time.monotonic(),
+        return Frame(img[y:y + rh, x:x + rw].copy(), (w, h), (x, y), (0, 0), time.perf_counter(),
                      full=rect is None, meta={"window_found": True, "window_focused": True})

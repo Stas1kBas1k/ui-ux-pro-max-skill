@@ -14,8 +14,10 @@ def update(s, obs: Observation, now: float) -> None:
     if not t.present:
         s.pointer_hist.clear()
         return
-    s.pointer_hist.append((now, t.pointer))
     gauge = t.source == "gauge"
+    if gauge and not _fresh(s, t.pointer, now):
+        return
+    s.pointer_hist.append((now, t.pointer))
     if not gauge:
         s._learn_latency(t.segments, now)
     if len(s.pointer_hist) < 2 or not t.segments:
@@ -89,3 +91,25 @@ def _gauge_click(s, t, now: float, lead: float) -> None:
             s._act()
             s._click_at, s._click_segments = now, list(t.segments)
             return
+
+
+def _fresh(s, x: float, now: float) -> bool:
+    """A pendulum reading worth using. Player's Hollowed Harp recording: the screen grab sometimes returns the
+    same picture twice (the same position twice in a row - as if the pendulum had stopped, which bends the
+    prediction), and near the ends of the swing the reader sometimes takes the quill's tail on the other side
+    (0.93 -> 0.01 -> 0.98). A repeat is skipped; a jump far from where the swing is going counts only once the
+    next frame agrees."""
+    h = s.pointer_hist
+    if not h:
+        return True
+    if abs(x - h[-1][1]) < 1e-6:
+        return False
+    if len(h) >= 2:
+        expect = s._predict(h[-1][1], h[-1][0], now - h[-1][0])
+        if abs(x - expect) > 0.25:
+            pend = getattr(s, "lull_jump", None)
+            s.lull_jump = x
+            if pend is None or abs(pend - x) > 0.1:
+                return False  # one wild reading: wait for the next frame
+    s.lull_jump = None
+    return True

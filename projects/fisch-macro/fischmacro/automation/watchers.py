@@ -110,7 +110,7 @@ class WatcherService:
             watchers = [w for w in self.get_watchers() if w.enabled]
             if not watchers:
                 continue
-            now = time.monotonic()
+            now = time.perf_counter()
             due = [w for w in watchers if now - self.states.get(w.name, WatchState()).last_check >= w.interval_s]
             if not due:
                 continue

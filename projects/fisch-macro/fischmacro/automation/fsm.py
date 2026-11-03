@@ -147,7 +147,7 @@ class FishingStateMachine:
         self.reel.release()
         self.running = False
         if self.state != State.IDLE:
-            self._go(State.IDLE, now if now is not None else time.monotonic(), reason, force=True)
+            self._go(State.IDLE, now if now is not None else time.perf_counter(), reason, force=True)
 
     def resync(self, now: float, reason: str = "resume") -> None:
         """Re-enter the loop after a pause: look at the screen before doing anything."""

@@ -166,7 +166,7 @@ class AddonsService:
     cfg: AddonsConfig
     world: WorldState = field(default_factory=WorldState)
     last_used: dict[str, float] = field(default_factory=dict)
-    session_start: float = field(default_factory=time.monotonic)
+    session_start: float = field(default_factory=time.perf_counter)
     recharge: RechargeMachine = field(default_factory=RechargeMachine)
     _power_candidate: int | None = None
 

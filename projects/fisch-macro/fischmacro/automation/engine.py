@@ -276,8 +276,8 @@ class AutomationEngine:
             self._last_active_tick = None
             self._snap.last_error = ""
             self.vision.reset_background()
-            self.scheduler.reset(time.monotonic(), 0)
-            self.addons.reset(time.monotonic())
+            self.scheduler.reset(time.perf_counter(), 0)
+            self.addons.reset(time.perf_counter())
             self._lullaby_mode_set = ""
             # what the profile looks like now: live adaptation during this run is undone at Stop, so one bad
             # guess can never break this rod's profile for the next Start
@@ -287,10 +287,10 @@ class AutomationEngine:
             self._lull_snap = False
             # the real game: the Lullaby gauge search runs beside the frame loop, never stalling clicks
             self.vision.lullaby_gauge.background = not self.simulated
-            self.fsm.start(time.monotonic())
+            self.fsm.start(time.perf_counter())
             self._status = Status.RUNNING
         self._stage("input enabled", self.inputs.enabled, getattr(self.inputs.backend, "name", ""))
-        self._arm_focus(time.monotonic())
+        self._arm_focus(time.perf_counter())
         if not self.simulated and self.source is not None:
             self._stage("game focused", self._focus_game(), "fishing starts as soon as Roblox is focused")
         observe = isinstance(self.inputs.backend, ObservedBackend) and self.inputs.backend.dry_run
@@ -333,7 +333,7 @@ class AutomationEngine:
         self.inputs.release_all()
         with self._lock:
             was_active = self._status in (Status.RUNNING, Status.PAUSED)
-            self.fsm.stop(time.monotonic(), reason)
+            self.fsm.stop(time.perf_counter(), reason)
             self.inputs.release_all()
             self._undo_live_adaptation()
             if was_active:
@@ -373,10 +373,10 @@ class AutomationEngine:
             self._abort.clear()
             self.inputs.enable()
             self.vision.reset_background()
-            self.fsm.resync(time.monotonic(), "resume")
+            self.fsm.resync(time.perf_counter(), "resume")
             self._status = Status.RUNNING
             self._last_active_tick = None
-        self._arm_focus(time.monotonic())
+        self._arm_focus(time.perf_counter())
         self._event("info", "Resumed")
 
     def toggle_pause(self) -> None:
@@ -467,7 +467,7 @@ class AutomationEngine:
     def _capture_loop(self, stop: threading.Event) -> None:
         perf = self.settings.performance
         while not stop.is_set():
-            t0 = time.monotonic()
+            t0 = time.perf_counter()
             reeling = self._status == Status.RUNNING and self.fsm.state == State.REELING
             period = 1.0 / max(1, perf.reel_fps if reeling else perf.detection_fps)
             try:
@@ -484,7 +484,7 @@ class AutomationEngine:
                 frame = self.source.grab(win, rect)
                 if rect is None:
                     self._last_full = t0
-                frame.meta["capture_ms"] = (time.monotonic() - t0) * 1000
+                frame.meta["capture_ms"] = (time.perf_counter() - t0) * 1000
                 item = frame
             except CaptureError as exc:
                 item = _CaptureFailure(str(exc), "not found" in str(exc) or "minimised" in str(exc), t0)
@@ -502,14 +502,14 @@ class AutomationEngine:
                     self._queue.put_nowait(item)
                 except queue.Full:
                     pass
-            delay = period - (time.monotonic() - t0)
+            delay = period - (time.perf_counter() - t0)
             if isinstance(item, _CaptureFailure):
                 delay = max(delay, 0.25)
             if delay > 0:
                 stop.wait(delay)
 
     def _process_loop(self, stop: threading.Event) -> None:
-        last = time.monotonic()
+        last = time.perf_counter()
         fps = 0.0
         while not stop.is_set():
             try:
@@ -518,7 +518,7 @@ class AutomationEngine:
                 continue
             if stop.is_set():
                 break
-            now = time.monotonic()
+            now = time.perf_counter()
             dt = now - last
             last = now
             if dt > 0:
@@ -740,18 +740,18 @@ class AutomationEngine:
                 ok = self._routine_runner().run(r)
             finally:
                 self.routine_running = ""
-            self.scheduler.mark_run(r, time.monotonic(), self.session.catches)
+            self.scheduler.mark_run(r, time.perf_counter(), self.session.catches)
             if not ok or self._abort.is_set():
                 return
         self.addons.cfg = self.settings.addons
-        for reason, r in self.addons.plan(time.monotonic()):
+        for reason, r in self.addons.plan(time.perf_counter()):
             self._event("info", f"Add-on: {reason}")
             self.routine_running = r.name
             try:
                 ok = self._run_addon(r)
             finally:
                 self.routine_running = ""
-            self.addons.mark(r, time.monotonic())
+            self.addons.mark(r, time.perf_counter())
             if not ok or self._abort.is_set():
                 return
         self._ensure_lullaby_mode()
@@ -763,7 +763,7 @@ class AutomationEngine:
         w = self.addons.world
         rc = self.addons.recharge
         ok = rc.run(lambda: runner.run(r), lambda: (w.power, w.power_updated), self._abort.wait,
-                    self.settings.addons.sovereign.charge_up_to, time.monotonic)
+                    self.settings.addons.sovereign.charge_up_to, time.perf_counter)
         self._event("info" if rc.state.value == "complete" else "warning", f"Sovereign: {rc.last_message}")
         return ok
 
@@ -845,7 +845,7 @@ class AutomationEngine:
         self.autocal.clear()
         self.autocal_result = None
         self.cal_session = CalibrationSession()
-        self._autocal_wizard_until = time.monotonic() + seconds
+        self._autocal_wizard_until = time.perf_counter() + seconds
         try:
             win = self.source.locate() if self.source is not None else None
         except Exception:  # noqa: BLE001
@@ -869,7 +869,7 @@ class AutomationEngine:
 
     @property
     def autocalibrating(self) -> bool:
-        return time.monotonic() < self._autocal_wizard_until
+        return time.perf_counter() < self._autocal_wizard_until
 
     def _autocal_tick(self, frame: Frame, obs: Observation, now: float) -> None:
         wizard = now < self._autocal_wizard_until
@@ -995,7 +995,7 @@ class AutomationEngine:
                                           k: [v.x, v.y, v.w, v.h] for k, v in self.profile.regions.items()}})
         ts, r, dbg = f.tracker.state, obs.reel, f.reel.debug
         row = {"t": frame.timestamp, "vision_ms": round(obs.processing_ms, 2),
-               "delay_ms": round((time.monotonic() - frame.timestamp) * 1000, 1) if frame.timestamp > 0 else None,
+               "delay_ms": round((time.perf_counter() - frame.timestamp) * 1000, 1) if frame.timestamp > 0 else None,
                "full": frame.full, "origin": list(frame.origin), "fish_seen": r.fish_found, "bar_seen": r.bar_found,
                "raw_fish": round(r.fish_x, 4), "raw_bar": [round(r.bar_left, 4), round(r.bar_right, 4)],
                "mode": getattr(f, "steer_mode", ""), "fish": round(ts.fish_x, 4), "bar_l": round(ts.bar_left, 4),
