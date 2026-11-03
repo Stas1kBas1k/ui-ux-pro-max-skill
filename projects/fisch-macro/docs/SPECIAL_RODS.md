@@ -35,6 +35,7 @@ does, what the macro does and how well that is checked. Source: `fischmacro/rods
 | Pinion's Aria | Notes fall across the bar every 2 s, speeding up to every 1 s. | Falling objects (by movement) | Yes | Built-in test game | obtainable |
 | Santa's Miracle Rod | Presents fall across the fishing bar. | Falling objects (by movement) | Yes | Built-in test game | limited (Fischmas) |
 | Starshell Rod | Shells fall every 4 s (+6%); a wave on top of the bar pushes the fish. | Falling objects (by movement) | Yes | Built-in test game | limited (Fischfest) |
+| Blade Of Glorp | Random laser strikes (2 warning pulses): control drops to a third for 0.3 s; fish still in the bar gives +10%. | Catch bar yes (green look); strike flash not read yet | Precision tracking, wide margin | Needs a recording | obtainable |
 | Acidgrinder | Charge meter while reeling. | Catch bar yes; meter no | Normal tracking; bonus not automated | Not on this rod | unobtainable |
 | Apollo's Sunshot | Charge Meter above the fishing bar. | Catch bar yes; meter no | Normal tracking; bonus not automated | Not on this rod | obtainable |
 | Cupid's Bow | Charge Meter above the fishing bar. | Catch bar yes; meter no | Normal tracking; bonus not automated | Not on this rod | limited (Valentides) |

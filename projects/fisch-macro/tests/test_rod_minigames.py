@@ -88,7 +88,8 @@ def test_lullaby_learns_the_input_delay(latency):
 
 @pytest.mark.parametrize("name,expected", [("Stellarwave Melody Rod", "Stellarwave Melody"), ("LULLABY", "Lullaby"),
                                            ("Pinion's Aria", "Pinion's Aria"), ("Halibut Harpoon", "Halibut Harpoon"),
-                                           ("Migurod", "Migurod"), ("Rod of the Depths", None)])
+                                           ("Migurod", "Migurod"), ("Blade Of Glorp", "Blade Of Glorp"),
+                                           ("Rod of the Depths", None)])
 def test_rod_presets(name, expected):
     preset = find_preset(name)
     assert (preset.name if preset else None) == expected

@@ -1019,8 +1019,12 @@ class AutomationEngine:
         going round in circles (or waiting on something it misreads). Write a stall report the diagnostics zip
         carries - the last steps and what the screen showed - and start the cycle again from a clean re-equip."""
         st = self.fsm.state
-        sig = (self.session.catches, self.session.failures)
-        if st == State.REELING or sig != getattr(self, "_stall_sig", None) or getattr(self, "_stall_t", None) is None:
+        # Only a catch, or a reel with a fish and a bar really on screen, counts as fishing. A "reel" with
+        # nothing in it (false reel UI, then the 120 s reel time limit, then recovery straight back into it)
+        # and lost fish used to reset this watch too, so a macro going round that loop never got restarted.
+        sig = self.session.catches
+        real_reel = st == State.REELING and obs.reel.fish_found and obs.reel.bar_found
+        if real_reel or sig != getattr(self, "_stall_sig", None) or getattr(self, "_stall_t", None) is None:
             self._stall_sig, self._stall_t = sig, now
             return
         if now - self._stall_t < self.STALL_SECONDS or self._focus_paused:
@@ -1043,7 +1047,7 @@ class AutomationEngine:
                 log.exception("Could not save the stall snapshot")
         self._event("warning", f"Nothing reeled for {self.STALL_SECONDS / 60:.0f} min - stall report saved, "
                                "re-equipping the rod and casting again")
-        if st not in (State.RECOVERY, State.ERROR, State.IDLE):
+        if st not in (State.ERROR, State.IDLE):  # a recovery that has not helped in 3 minutes starts over too
             self.inputs.release_all()
             self.fsm.reel.release()
             self.fsm._go(State.RECOVERY, now, "stall", force=True)

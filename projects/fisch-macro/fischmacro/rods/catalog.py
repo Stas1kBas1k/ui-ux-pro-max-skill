@@ -70,6 +70,12 @@ CATALOG: dict[str, RodMechanic] = {m.name: m for m in (
                 "inverted.", "Play with hold and release swapped.", "handled", "Notices the inversion from how "
                 "the bar moves and flips the input (any rod).", "obtainable", "none",
                 ("Garnetbreaker", "Umbral Vengeance", "Golden Dreambreaker", "Aquabriar", "Dreamshredder")),
+    RodMechanic("Blade Of Glorp", "Every 2 s a 20% chance of a laser strike, announced by 2 warning pulses (4 with "
+                "the Mastery passive): for 0.3 s control drops to a third and progress moves only 0.25% per frame; "
+                "if the fish is still inside the bar after that, +10% progress. Green, non-standard look.",
+                "Keep the fish inside the bar through each strike.", "needs-footage",
+                "Precision tracking with a wide safety margin, so the fish sits mid-bar when control drops; the "
+                "strike's flash is not read yet (send a recording).", "obtainable", "none"),
     RodMechanic("Verdant Oath", "At the start the bar breaks in half, showing a green bar in the middle; the fish "
                 "touching its brown sides costs 20%.", "Keep the fish in the green middle.", "normal",
                 "Normal tracking: the damped centring keeps the fish near the middle of the bar (the split "

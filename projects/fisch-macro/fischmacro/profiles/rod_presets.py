@@ -55,6 +55,11 @@ PRESETS: list[RodPreset] = [
                "minigame.keep_reeling": True, "detection.fish_line": "bright"},
               "Extremely low control: precision tracking with a large safety margin. Presses Shift when the "
               "timing bar's pointer is in the middle. Keeps the bar away from the slash marks."),
+    RodPreset("Blade Of Glorp", ("glorp",),
+              {"reel.mode": "precision", "reel.mpc_margin": 0.25},
+              "Laser strikes cut control to a third for 0.3 s and give +10% if the fish stays in the bar: "
+              "precision tracking keeps the fish near the middle of the bar so it survives the strike. The "
+              "green bar is read like any skin. Not checked on a recording yet."),
     RodPreset("Remembrance", ("remembrance",),
               {"detection.fish_line": "bright"},
               "A white and a dark fish: the white one counts (player's recordings: the bar stays white and the "

@@ -566,7 +566,10 @@ class FishingStateMachine:
         # Look before acting: the game may already be in a known state (not the stuck screen we are clearing).
         if stuck and c.phase == 0:
             pass
-        elif obs.reel.ui_present and t > 0.2 and not (stuck and t < self.profile.timing.recovery_delay):
+        elif (obs.reel.ui_present and obs.reel.fish_found and t > 0.2
+              and not (stuck and t < self.profile.timing.recovery_delay)):
+            # a fish on screen too, not only something that looks like the reel's frame: going back into a
+            # "reel" with nothing in it is how a stuck macro stayed stuck after recovering
             self._go(State.REELING, now, "resynced to minigame", count=False)
             return
         elif self.profile.shake.mode == "click" and obs.shake.present and t > 0.2 and not stuck:

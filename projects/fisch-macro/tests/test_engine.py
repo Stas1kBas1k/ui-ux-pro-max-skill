@@ -260,6 +260,39 @@ def test_three_minutes_without_a_reel_writes_a_stall_report_and_starts_over(capl
         eng.shutdown()
 
 
+def test_empty_reels_and_recoveries_do_not_hide_a_stall():
+    """Player: "it does the same thing when it just does nothing even after recovery". Reels with no fish in
+    them, lost fish and recoveries are not fishing: three minutes of them without a catch start over."""
+    import numpy as np
+
+    from fischmacro.automation.fsm import State
+    from fischmacro.vision.engine import Observation
+    from fischmacro.vision.frame import Frame
+    eng = AutomationEngine(sim_settings(), Profile())
+    try:
+        eng.fsm.start(0.0)
+        frame = Frame(np.zeros((720, 1280, 3), np.uint8), (1280, 720), timestamp=0.0)
+        o = Observation(timestamp=0.0, ok=True, client_size=(1280, 720))
+        eng.fsm._go(State.REELING, 0.0, "test", force=True)
+        eng._stall_watch(frame, o, 0.0)
+        eng._stall_watch(frame, o, 120.0)       # a "reel" with nothing in it, until the time limit
+        eng.session.failures += 1
+        eng.fsm._go(State.RECOVERY, 120.0, "reel stuck", force=True)
+        eng._stall_watch(frame, o, 150.0)
+        eng.fsm._go(State.RECOVERY, 150.0, "reel stuck", force=True)
+        eng._stall_watch(frame, o, 181.0)       # still in a recovery: it starts over all the same
+        assert eng.fsm.ctx.reason == "stall"
+        # a real reel (fish and bar on screen) is fishing: no restart
+        eng.fsm._go(State.REELING, 200.0, "test", force=True)
+        o.reel.fish_found = o.reel.bar_found = True
+        eng._stall_watch(frame, o, 200.0)
+        o.reel.fish_found = o.reel.bar_found = False
+        eng._stall_watch(frame, o, 300.0)
+        assert eng.fsm.state == State.REELING
+    finally:
+        eng.shutdown()
+
+
 def test_every_reel_ends_with_a_report_line(caplog):
     import logging
     eng = AutomationEngine(sim_settings(), Profile())
