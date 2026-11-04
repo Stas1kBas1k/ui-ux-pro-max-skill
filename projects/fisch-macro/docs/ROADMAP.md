@@ -4,6 +4,17 @@ Rules that do not change: screen capture + normal Windows input only. No game me
 no hiding from or defeating anti-cheat. Nothing written to drive C. No player names/stats committed.
 Nothing claimed as working in the game unless it was checked on the player's recording.
 
+## 0. No more manual recording (player: "recording every rod and add-on takes ages")
+- **Black box, always on:** keeps the last ~60 s of the reel / menu areas (small, low-res) in memory and
+  saves a clip + log by itself whenever something goes wrong: fish lost, reel stuck, stall, an add-on step
+  that did not get the expected result. Normal play is the recording.
+- **Add-ons check their own result** (appraise: did the trait text change? totem: did the weather change?
+  recharge: did the power % go up?) and save a picture of the failing step.
+- **One button "Send report"** zips everything since the last report. Later: straight upload, or a
+  Remote Control folder so Claude reads the reports on the player's PC with no upload step.
+- Menu layouts (appraise, totems, aquarium...) researched from the wiki / videos first; the player only
+  sends a screenshot when that is not enough.
+
 ## 1. Make the existing add-ons actually work (first, before anything new)
 Player: "auto appraise with gamepass doesn't work, all add-ons pretty much don't work".
 - Every add-on gets a **Test now** button: runs once, logs each step, saves a picture of what it saw at each
